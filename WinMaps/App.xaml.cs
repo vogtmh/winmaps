@@ -1,6 +1,7 @@
 using System;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
+using Windows.UI.Popups;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
@@ -13,9 +14,20 @@ namespace WinMaps
         {
             this.InitializeComponent();
             this.Suspending += OnSuspending;
+            this.UnhandledException += OnUnhandledException;
+        }
 
-            // Initialize SQLite provider (use the SQLite built into Windows 10)
-            SQLitePCL.Batteries_V2.Init();
+        private async void OnUnhandledException(object sender, Windows.UI.Xaml.UnhandledExceptionEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                var dialog = new MessageDialog(
+                    e.Exception?.ToString() ?? "Unknown error",
+                    "WinMaps Error");
+                await dialog.ShowAsync();
+            }
+            catch { }
         }
 
         protected override void OnLaunched(LaunchActivatedEventArgs e)

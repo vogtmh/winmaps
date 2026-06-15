@@ -20,6 +20,10 @@ namespace WinMaps.Data
         {
             await Task.Run(() =>
             {
+                // Ensure SQLite provider is initialized
+                try { SQLitePCL.Batteries_V2.Init(); }
+                catch { try { SQLitePCL.Batteries.Init(); } catch { } }
+
                 _connection = new SqliteConnection($"Data Source={_dbPath}");
                 _connection.Open();
 

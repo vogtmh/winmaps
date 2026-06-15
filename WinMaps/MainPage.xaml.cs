@@ -50,7 +50,17 @@ namespace WinMaps
 
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
         {
-            await InitializeAsync();
+            try
+            {
+                await InitializeAsync();
+            }
+            catch (Exception ex)
+            {
+                OverlayPanel.Visibility = Visibility.Visible;
+                TxtOverlayTitle.Text = "Startup Error";
+                TxtOverlayStatus.Text = ex.ToString();
+                BtnDownload.Visibility = Visibility.Collapsed;
+            }
         }
 
         private void MainPage_Unloaded(object sender, RoutedEventArgs e)
