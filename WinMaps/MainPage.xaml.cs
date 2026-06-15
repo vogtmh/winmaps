@@ -1,11 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Graphics.Canvas.UI.Xaml;
 using Windows.Devices.Geolocation;
 using Windows.Foundation;
 using Windows.UI.Core;
-using Windows.UI.Input;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
@@ -72,7 +70,6 @@ namespace WinMaps
 
         private async Task InitializeAsync()
         {
-            // Check if we have an existing database
             string dbPath = await _downloadManager.GetDatabasePath(_selectedRegion);
             _db = new MapDatabase(dbPath);
 
@@ -82,7 +79,6 @@ namespace WinMaps
 
                 if (_db.HasData())
                 {
-                    // Map data exists, go straight to map view
                     _renderer = new MapRenderer(_db, _viewport);
 
                     var bounds = _db.GetBounds();
@@ -94,7 +90,7 @@ namespace WinMaps
 
                     OverlayPanel.Visibility = Visibility.Collapsed;
                     StartGps();
-                    MapCanvas.Invalidate();
+                    RedrawMap();
                     return;
                 }
             }
@@ -103,7 +99,6 @@ namespace WinMaps
                 // Database doesn't exist or is corrupt
             }
 
-            // No map data — show download overlay
             OverlayPanel.Visibility = Visibility.Visible;
             TxtOverlayStatus.Text = "No map data found. Download a region to get started.";
             BtnDownload.IsEnabled = true;
@@ -118,12 +113,10 @@ namespace WinMaps
 
             try
             {
-                // Check if PBF already downloaded
                 string pbfPath = await _downloadManager.GetExistingMapPath(_selectedRegion);
 
                 if (pbfPath == null)
                 {
-                    // Download
                     TxtOverlayTitle.Text = "Downloading...";
                     TxtOverlayStatus.Text = _selectedRegion.Name;
                     ProgressOverlay.Value = 0;
@@ -133,7 +126,6 @@ namespace WinMaps
                     _downloadManager.OnProgress -= OnDownloadProgress;
                 }
 
-                // Import
                 TxtOverlayTitle.Text = "Importing...";
                 TxtOverlayStatus.Text = "Parsing map data — this may take several minutes.";
                 ProgressOverlay.Value = 0;
@@ -149,7 +141,6 @@ namespace WinMaps
                 await importer.ImportAsync(pbfPath, _db, _cts.Token);
                 importer.OnProgress -= OnImportProgress;
 
-                // Done — switch to map view
                 _renderer = new MapRenderer(_db, _viewport);
 
                 var bounds = _db.GetBounds();
@@ -161,7 +152,7 @@ namespace WinMaps
 
                 OverlayPanel.Visibility = Visibility.Collapsed;
                 StartGps();
-                MapCanvas.Invalidate();
+                RedrawMap();
             }
             catch (OperationCanceledException)
             {
@@ -191,7 +182,6 @@ namespace WinMaps
             await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
                 ProgressOverlay.Value = p.Percent;
-
                 switch (p.Phase)
                 {
                     case ImportPhase.Nodes:
@@ -215,29 +205,28 @@ namespace WinMaps
 
         // ---- Map Rendering ----
 
-        private void MapCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+        private void RedrawMap()
         {
-            float w = (float)sender.ActualWidth;
-            float h = (float)sender.ActualHeight;
-
             if (_renderer != null)
             {
-                _renderer.Draw(args.DrawingSession, w, h);
+                _renderer.Draw(MapCanvas);
 
-                // Draw GPS position
                 if (!double.IsNaN(_gpsLat))
                 {
-                    _renderer.DrawGpsPosition(args.DrawingSession, _gpsLat, _gpsLon, _gpsAccuracy);
+                    _renderer.DrawGpsPosition(MapCanvas, _gpsLat, _gpsLon, _gpsAccuracy);
                 }
             }
-            else
-            {
-                args.DrawingSession.Clear(Windows.UI.Color.FromArgb(255, 242, 239, 233));
-            }
 
-            // Update status bar
             TxtZoom.Text = $"Z{_viewport.Zoom:F0}";
             TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
+        }
+
+        private void MapCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            _viewport.ScreenWidth = e.NewSize.Width;
+            _viewport.ScreenHeight = e.NewSize.Height;
+            _renderer?.InvalidateCache();
+            RedrawMap();
         }
 
         // ---- Touch / Mouse Input ----
@@ -263,7 +252,7 @@ namespace WinMaps
             _panStart = point.Position;
             _followGps = false;
             _renderer?.InvalidateCache();
-            MapCanvas.Invalidate();
+            RedrawMap();
             e.Handled = true;
         }
 
@@ -283,16 +272,14 @@ namespace WinMaps
             _viewport.ZoomAt(point.Position.X, point.Position.Y, zoomDelta);
             _followGps = false;
             _renderer?.InvalidateCache();
-            MapCanvas.Invalidate();
+            RedrawMap();
             e.Handled = true;
         }
 
         private void MapCanvas_ManipulationDelta(object sender, ManipulationDeltaRoutedEventArgs e)
         {
-            // Pan
             _viewport.Pan(e.Delta.Translation.X, e.Delta.Translation.Y);
 
-            // Pinch-to-zoom
             if (Math.Abs(e.Delta.Scale - 1.0f) > 0.001f)
             {
                 double zoomDelta = Math.Log(e.Delta.Scale) / Math.Log(2.0) * 1.5;
@@ -301,7 +288,7 @@ namespace WinMaps
 
             _followGps = false;
             _renderer?.InvalidateCache();
-            MapCanvas.Invalidate();
+            RedrawMap();
             e.Handled = true;
         }
 
@@ -311,14 +298,14 @@ namespace WinMaps
         {
             _viewport.ZoomAt(_viewport.ScreenWidth / 2, _viewport.ScreenHeight / 2, 1);
             _renderer?.InvalidateCache();
-            MapCanvas.Invalidate();
+            RedrawMap();
         }
 
         private void BtnZoomOut_Click(object sender, RoutedEventArgs e)
         {
             _viewport.ZoomAt(_viewport.ScreenWidth / 2, _viewport.ScreenHeight / 2, -1);
             _renderer?.InvalidateCache();
-            MapCanvas.Invalidate();
+            RedrawMap();
         }
 
         // ---- GPS ----
@@ -331,7 +318,7 @@ namespace WinMaps
                 _viewport.CenterLon = _gpsLon;
                 _followGps = true;
                 _renderer?.InvalidateCache();
-                MapCanvas.Invalidate();
+                RedrawMap();
             }
             else
             {
@@ -359,7 +346,6 @@ namespace WinMaps
 
                 _geolocator.PositionChanged += OnGpsPositionChanged;
 
-                // Get initial position
                 var pos = await _geolocator.GetGeopositionAsync();
                 UpdateGpsPosition(pos.Coordinate);
             }
@@ -390,7 +376,7 @@ namespace WinMaps
                 _renderer?.InvalidateCache();
             }
 
-            MapCanvas.Invalidate();
+            RedrawMap();
         }
     }
 }
