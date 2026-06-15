@@ -13,6 +13,7 @@
     <Assembly Name="SQLitePCLRaw.core" Dynamic="Required All" />
     <Assembly Name="SQLitePCLRaw.provider.winsqlite3" Dynamic="Required All" />
     <Assembly Name="SQLitePCLRaw.batteries_v2" Dynamic="Required All" />
+    <Assembly Name="SQLitePCLRaw.nativelibrary" Dynamic="Required All" />
     <Assembly Name="Microsoft.Data.Sqlite" Dynamic="Required All" />
   </Application>
 </Directives>
