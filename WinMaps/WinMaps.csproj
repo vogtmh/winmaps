@@ -16,8 +16,15 @@
     <MinimumVisualStudioVersion>14</MinimumVisualStudioVersion>
     <FileAlignment>512</FileAlignment>
     <ProjectTypeGuids>{A5A43C5B-DE2A-4C0C-9213-0A381AF9435A};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
-    <PackageCertificateThumbprint>
-    </PackageCertificateThumbprint>
+    <PackageCertificateThumbprint>0F034EFCB5425DF9D64256E660485CC5FAB4AAA5</PackageCertificateThumbprint>
+    <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
+    <AppxAutoIncrementPackageRevision>True</AppxAutoIncrementPackageRevision>
+    <AppxSymbolPackageEnabled>False</AppxSymbolPackageEnabled>
+    <AppxBundle>Always</AppxBundle>
+    <AppxBundlePlatforms>arm</AppxBundlePlatforms>
+    <PackageCertificateKeyFile>WinMaps_TemporaryKey.pfx</PackageCertificateKeyFile>
+    <AppInstallerUpdateFrequency>1</AppInstallerUpdateFrequency>
+    <AppInstallerCheckForUpdateFrequency>OnApplicationRun</AppInstallerCheckForUpdateFrequency>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
     <DebugSymbols>true</DebugSymbols>
@@ -112,28 +119,48 @@
     <Content Include="Assets\LargeTile.scale-150.png" />
     <Content Include="Assets\LargeTile.scale-200.png" />
     <Content Include="Assets\LargeTile.scale-400.png" />
+    <Content Include="Assets\LockScreenLogo.scale-100.png" />
+    <Content Include="Assets\LockScreenLogo.scale-125.png" />
+    <Content Include="Assets\LockScreenLogo.scale-150.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.scale-100.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.scale-125.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.scale-150.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.scale-200.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.scale-400.png" />
+    <Content Include="Assets\LockScreenLogo.scale-400.png" />
     <Content Include="Assets\SmallTile.scale-100.png" />
     <Content Include="Assets\SmallTile.scale-125.png" />
     <Content Include="Assets\SmallTile.scale-150.png" />
     <Content Include="Assets\SmallTile.scale-200.png" />
     <Content Include="Assets\SmallTile.scale-400.png" />
+    <Content Include="Assets\SplashScreen.scale-100.png" />
+    <Content Include="Assets\SplashScreen.scale-125.png" />
+    <Content Include="Assets\SplashScreen.scale-150.png" />
     <Content Include="Assets\SplashScreen.scale-200.png" />
     <Content Include="Assets\SplashScreen.scale-200.scale-100.png" />
     <Content Include="Assets\SplashScreen.scale-200.scale-125.png" />
     <Content Include="Assets\SplashScreen.scale-200.scale-150.png" />
     <Content Include="Assets\SplashScreen.scale-200.scale-200.png" />
     <Content Include="Assets\SplashScreen.scale-200.scale-400.png" />
+    <Content Include="Assets\SplashScreen.scale-400.png" />
+    <Content Include="Assets\Square150x150Logo.scale-100.png" />
+    <Content Include="Assets\Square150x150Logo.scale-125.png" />
+    <Content Include="Assets\Square150x150Logo.scale-150.png" />
+    <Content Include="Assets\Square150x150Logo.scale-200.png" />
     <Content Include="Assets\Square150x150Logo.scale-200.scale-100.png" />
     <Content Include="Assets\Square150x150Logo.scale-200.scale-125.png" />
     <Content Include="Assets\Square150x150Logo.scale-200.scale-150.png" />
     <Content Include="Assets\Square150x150Logo.scale-200.scale-200.png" />
     <Content Include="Assets\Square150x150Logo.scale-200.scale-400.png" />
+    <Content Include="Assets\Square150x150Logo.scale-400.png" />
+    <Content Include="Assets\Square44x44Logo.altform-unplated_targetsize-16.png" />
+    <Content Include="Assets\Square44x44Logo.altform-unplated_targetsize-256.png" />
+    <Content Include="Assets\Square44x44Logo.altform-unplated_targetsize-32.png" />
+    <Content Include="Assets\Square44x44Logo.altform-unplated_targetsize-48.png" />
+    <Content Include="Assets\Square44x44Logo.scale-100.png" />
+    <Content Include="Assets\Square44x44Logo.scale-125.png" />
+    <Content Include="Assets\Square44x44Logo.scale-150.png" />
     <Content Include="Assets\Square44x44Logo.scale-200.altform-unplated_targetsize-16.png" />
     <Content Include="Assets\Square44x44Logo.scale-200.altform-unplated_targetsize-24.png" />
     <Content Include="Assets\Square44x44Logo.scale-200.altform-unplated_targetsize-256.png" />
@@ -150,19 +177,28 @@
     <Content Include="Assets\Square44x44Logo.scale-200.targetsize-256.png" />
     <Content Include="Assets\Square44x44Logo.scale-200.targetsize-32.png" />
     <Content Include="Assets\Square44x44Logo.scale-200.targetsize-48.png" />
+    <Content Include="Assets\Square44x44Logo.scale-400.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-16.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-24.png" />
     <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
-    <Content Include="Assets\Square150x150Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-256.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-32.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-48.png" />
     <Content Include="Assets\StoreLogo.scale-100.png" />
     <Content Include="Assets\StoreLogo.scale-125.png" />
     <Content Include="Assets\StoreLogo.scale-150.png" />
     <Content Include="Assets\StoreLogo.scale-200.png" />
     <Content Include="Assets\StoreLogo.scale-400.png" />
+    <Content Include="Assets\Wide310x150Logo.scale-100.png" />
+    <Content Include="Assets\Wide310x150Logo.scale-125.png" />
+    <Content Include="Assets\Wide310x150Logo.scale-150.png" />
     <Content Include="Assets\Wide310x150Logo.scale-200.png" />
     <Content Include="Assets\Wide310x150Logo.scale-200.scale-100.png" />
     <Content Include="Assets\Wide310x150Logo.scale-200.scale-125.png" />
     <Content Include="Assets\Wide310x150Logo.scale-200.scale-150.png" />
     <Content Include="Assets\Wide310x150Logo.scale-200.scale-200.png" />
     <Content Include="Assets\Wide310x150Logo.scale-200.scale-400.png" />
+    <Content Include="Assets\Wide310x150Logo.scale-400.png" />
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml">
@@ -187,6 +223,9 @@
     <PackageReference Include="SQLitePCLRaw.bundle_winsqlite3">
       <Version>1.1.11</Version>
     </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="WinMaps_TemporaryKey.pfx" />
   </ItemGroup>
   <PropertyGroup Condition=" '$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '14.0' ">
     <VisualStudioVersion>14.0</VisualStudioVersion>
