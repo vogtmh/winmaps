@@ -19,14 +19,13 @@
         <!-- Floating control buttons (bottom-right) -->
         <StackPanel HorizontalAlignment="Right"
                     VerticalAlignment="Bottom"
-                    Margin="0,0,12,12"
-                    Spacing="6">
+                    Margin="0,0,12,12">
             <Button x:Name="BtnZoomIn" Content="+" Width="44" Height="44"
-                    FontSize="20" FontWeight="Bold"
+                    FontSize="20" FontWeight="Bold" Margin="0,0,0,6"
                     Click="BtnZoomIn_Click"
                     Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}" />
             <Button x:Name="BtnZoomOut" Content="−" Width="44" Height="44"
-                    FontSize="20" FontWeight="Bold"
+                    FontSize="20" FontWeight="Bold" Margin="0,0,0,6"
                     Click="BtnZoomOut_Click"
                     Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}" />
             <Button x:Name="BtnGps" Width="44" Height="44"
