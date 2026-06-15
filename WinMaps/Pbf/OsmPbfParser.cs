@@ -66,29 +66,25 @@ namespace WinMaps.Pbf
                     lastProgressReport = pos;
                 }
 
-                // Read BlobHeader
-                int headerSize;
+                // Read BlobHeader + Blob (catch truncated file at any point)
                 try
                 {
-                    headerSize = reader.ReadInt32BigEndian();
+                    int headerSize = reader.ReadInt32BigEndian();
+                    byte[] headerData = reader.ReadBytes(headerSize);
+                    ParseBlobHeader(headerData, out string type, out int dataSize);
+
+                    byte[] blobData = reader.ReadBytes(dataSize);
+                    byte[] uncompressed = DecompressBlob(blobData);
+
+                    if (type == "OSMData")
+                    {
+                        ParsePrimitiveBlock(uncompressed, ct);
+                    }
                 }
                 catch (EndOfStreamException)
                 {
-                    break;
+                    break; // End of file or truncated data
                 }
-
-                byte[] headerData = reader.ReadBytes(headerSize);
-                ParseBlobHeader(headerData, out string type, out int dataSize);
-
-                // Read Blob
-                byte[] blobData = reader.ReadBytes(dataSize);
-                byte[] uncompressed = DecompressBlob(blobData);
-
-                if (type == "OSMData")
-                {
-                    ParsePrimitiveBlock(uncompressed, ct);
-                }
-                // Skip OSMHeader and unknown block types
             }
 
             // Final progress

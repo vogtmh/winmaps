@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.UI.Popups;
@@ -12,14 +13,30 @@ namespace WinMaps
     {
         public App()
         {
+            LogStartup("App constructor");
             this.InitializeComponent();
             this.Suspending += OnSuspending;
             this.UnhandledException += OnUnhandledException;
+            LogStartup("App constructor done");
+        }
+
+        private static void LogStartup(string message)
+        {
+            try
+            {
+                string path = Path.Combine(
+                    Windows.Storage.ApplicationData.Current.LocalFolder.Path,
+                    "startup.log");
+                File.AppendAllText(path,
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message}\r\n");
+            }
+            catch { }
         }
 
         private async void OnUnhandledException(object sender, Windows.UI.Xaml.UnhandledExceptionEventArgs e)
         {
             e.Handled = true;
+            LogStartup($"UNHANDLED EXCEPTION: {e.Exception}");
             try
             {
                 var dialog = new MessageDialog(
@@ -32,6 +49,7 @@ namespace WinMaps
 
         protected override void OnLaunched(LaunchActivatedEventArgs e)
         {
+            LogStartup("OnLaunched");
             Frame rootFrame = Window.Current.Content as Frame;
 
             if (rootFrame == null)
@@ -45,9 +63,12 @@ namespace WinMaps
             {
                 if (rootFrame.Content == null)
                 {
+                    LogStartup("Navigating to MainPage");
                     rootFrame.Navigate(typeof(MainPage), e.Arguments);
+                    LogStartup("MainPage navigated");
                 }
                 Window.Current.Activate();
+                LogStartup("Window activated");
             }
         }
 
