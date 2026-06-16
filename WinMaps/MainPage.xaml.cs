@@ -1159,46 +1159,11 @@ namespace WinMaps
                 return Windows.UI.Color.FromArgb(255, 190, 125, 35);  // orange — partial
         }
 
-        // Approximate bounding boxes per continent — used to filter out overseas territories
-        private static readonly Dictionary<string, (double MinLat, double MinLon, double MaxLat, double MaxLon)> ContinentBounds
-            = new Dictionary<string, (double, double, double, double)>
-        {
-            { "Africa",        (-38, -26, 38, 55) },
-            { "Asia",          (-12, 25, 82, 180) },
-            { "Europe",        (34, -32, 82, 50) },
-            { "North America", (5, -180, 85, -50) },
-            { "South America", (-60, -95, 16, -30) },
-            { "Oceania",       (-50, 100, 0, 180) },
-        };
-
-        /// <summary>
-        /// Filters geometry rings to only those whose centroid falls within the given bounding box.
-        /// Returns null if no rings pass the filter.
-        /// </summary>
-        private static List<List<(double Lat, double Lon)>> FilterRingsByBBox(
-            List<List<(double Lat, double Lon)>> geometry,
-            double bMinLat, double bMinLon, double bMaxLat, double bMaxLon)
-        {
-            if (geometry == null) return null;
-            var result = new List<List<(double Lat, double Lon)>>();
-            foreach (var ring in geometry)
-            {
-                if (ring.Count < 3) continue;
-                // Compute ring centroid
-                double sumLat = 0, sumLon = 0;
-                foreach (var p in ring) { sumLat += p.Lat; sumLon += p.Lon; }
-                double cLat = sumLat / ring.Count;
-                double cLon = sumLon / ring.Count;
-
-                if (cLat >= bMinLat && cLat <= bMaxLat && cLon >= bMinLon && cLon <= bMaxLon)
-                    result.Add(ring);
-            }
-            return result.Count > 0 ? result : null;
-        }
-
         /// <summary>
         /// Returns only the mainland rings of a geometry: the largest ring plus any rings
-        /// within 15° of the largest ring's centroid (nearby islands).
+        /// within a distance threshold of the largest ring's centroid (nearby islands).
+        /// Filters out distant overseas territories (e.g. French Guiana, Réunion)
+        /// while naturally preserving transcontinental countries like Russia.
         /// </summary>
         private static List<List<(double Lat, double Lon)>> GetMainlandRings(
             List<List<(double Lat, double Lon)>> geometry)
@@ -1216,7 +1181,7 @@ namespace WinMaps
             cLat /= largest.Count;
             cLon /= largest.Count;
 
-            // Keep rings within 15° of mainland centroid
+            // Keep rings within 30° of mainland centroid
             var result = new List<List<(double Lat, double Lon)>>();
             foreach (var ring in geometry)
             {
@@ -1225,32 +1190,21 @@ namespace WinMaps
                 rLat /= ring.Count;
                 rLon /= ring.Count;
 
-                if (Math.Abs(rLat - cLat) < 15 && Math.Abs(rLon - cLon) < 15)
+                if (Math.Abs(rLat - cLat) < 30 && Math.Abs(rLon - cLon) < 30)
                     result.Add(ring);
             }
             return result.Count > 0 ? result : geometry;
         }
 
         /// <summary>
-        /// Returns the filtered geometry for a country based on the current map level.
-        /// At world/continent level: filters by continent bounding box.
-        /// At country level (leaf): keeps only mainland rings.
+        /// Returns the filtered geometry for a country at any map level.
+        /// Always uses mainland filtering to exclude distant overseas territories
+        /// while preserving transcontinental countries like Russia.
         /// </summary>
         private List<List<(double Lat, double Lon)>> GetFilteredGeometry(NaturalEarthCountry country)
         {
             if (country.Geometry == null) return null;
-
-            if (_worldMapLevel == "world" || _worldMapLevel == "continent")
-            {
-                if (ContinentBounds.TryGetValue(country.Continent, out var bounds))
-                    return FilterRingsByBBox(country.Geometry,
-                        bounds.MinLat, bounds.MinLon, bounds.MaxLat, bounds.MaxLon);
-            }
-            else if (_worldMapLevel == "country")
-            {
-                return GetMainlandRings(country.Geometry);
-            }
-            return country.Geometry;
+            return GetMainlandRings(country.Geometry);
         }
 
         /// <summary>
