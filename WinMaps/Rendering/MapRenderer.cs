@@ -33,6 +33,9 @@ namespace WinMaps.Rendering
         private bool _pendingReload;
         private readonly CanvasStrokeStyle _roundStroke;
 
+        // Per-frame offset to convert cached Mercator coords → screen coords
+        private float _frameOffsetX, _frameOffsetY;
+
         public MapRenderer(MapDatabase db, MapViewport viewport, MapTheme theme = null)
         {
             _db = db;
@@ -55,6 +58,10 @@ namespace WinMaps.Rendering
         public void Draw(CanvasDrawingSession ds, ICanvasResourceCreator rc)
         {
             if (_cachedWays == null || _cachedWays.Count == 0) return;
+
+            // Compute viewport offset once per frame — converts cached Mercator coords to screen
+            _frameOffsetX = (float)(-_viewport.LonToMercatorX(_viewport.CenterLon) + _viewport.ScreenWidth / 2.0);
+            _frameOffsetY = (float)(-_viewport.LatToMercatorY(_viewport.CenterLat) + _viewport.ScreenHeight / 2.0);
 
             // Layer order: parks → water → road outlines → roads
             // Batch all ways of same color into a single CanvasGeometry for massive draw-call reduction
@@ -95,7 +102,7 @@ namespace WinMaps.Rendering
 
             foreach (var way in _cachedWays)
             {
-                if (way.Type != typeFilter || way.ScreenX.Length < 3) continue;
+                if (way.Type != typeFilter || way.MercX.Length < 3) continue;
                 uint colorKey = ColorToUint(colorFunc(way));
                 if (!batches.TryGetValue(colorKey, out var list))
                 {
@@ -112,9 +119,9 @@ namespace WinMaps.Rendering
                 {
                     foreach (var way in kvp.Value)
                     {
-                        pb.BeginFigure(way.ScreenX[0], way.ScreenY[0]);
-                        for (int i = 1; i < way.ScreenX.Length; i++)
-                            pb.AddLine(way.ScreenX[i], way.ScreenY[i]);
+                        pb.BeginFigure(way.MercX[0] + _frameOffsetX, way.MercY[0] + _frameOffsetY);
+                        for (int i = 1; i < way.MercX.Length; i++)
+                            pb.AddLine(way.MercX[i] + _frameOffsetX, way.MercY[i] + _frameOffsetY);
                         pb.EndFigure(way.IsClosed ? CanvasFigureLoop.Closed : CanvasFigureLoop.Open);
                     }
                     using (var geo = CanvasGeometry.CreatePath(pb))
@@ -133,7 +140,7 @@ namespace WinMaps.Rendering
 
             foreach (var way in _cachedWays)
             {
-                if (way.Type != typeFilter || way.ScreenX.Length < 2) continue;
+                if (way.Type != typeFilter || way.MercX.Length < 2) continue;
                 float w = widthFunc(way);
                 if (w < 0) continue; // skip (used for outline filter)
                 Color c = colorFunc(way);
@@ -158,9 +165,9 @@ namespace WinMaps.Rendering
                 {
                     foreach (var way in ways)
                     {
-                        pb.BeginFigure(way.ScreenX[0], way.ScreenY[0]);
-                        for (int i = 1; i < way.ScreenX.Length; i++)
-                            pb.AddLine(way.ScreenX[i], way.ScreenY[i]);
+                        pb.BeginFigure(way.MercX[0] + _frameOffsetX, way.MercY[0] + _frameOffsetY);
+                        for (int i = 1; i < way.MercX.Length; i++)
+                            pb.AddLine(way.MercX[i] + _frameOffsetX, way.MercY[i] + _frameOffsetY);
                         pb.EndFigure(CanvasFigureLoop.Open);
                     }
                     using (var geo = CanvasGeometry.CreatePath(pb))
@@ -236,18 +243,20 @@ namespace WinMaps.Rendering
                 {
                     if (points.Count < 2) continue;
 
-                    // Pre-compute screen coordinates + simplify
+                    // Pre-compute Mercator coordinates + simplify
                     var sx = new List<float>(points.Count);
                     var sy = new List<float>(points.Count);
 
-                    var (firstX, firstY) = _viewport.GeoToScreen(points[0].lat, points[0].lon);
+                    float firstX = (float)_viewport.LonToMercatorX(points[0].lon);
+                    float firstY = (float)_viewport.LatToMercatorY(points[0].lat);
                     sx.Add(firstX);
                     sy.Add(firstY);
                     float lastKeptX = firstX, lastKeptY = firstY;
 
                     for (int i = 1; i < points.Count; i++)
                     {
-                        var (px, py) = _viewport.GeoToScreen(points[i].lat, points[i].lon);
+                        float px = (float)_viewport.LonToMercatorX(points[i].lon);
+                        float py = (float)_viewport.LatToMercatorY(points[i].lat);
 
                         // Always keep the last point; skip intermediate points too close
                         if (i < points.Count - 1)
@@ -279,8 +288,8 @@ namespace WinMaps.Rendering
                     {
                         Type = type,
                         SubType = subType,
-                        ScreenX = sx.ToArray(),
-                        ScreenY = sy.ToArray(),
+                        MercX = sx.ToArray(),
+                        MercY = sy.ToArray(),
                         IsClosed = isClosed
                     });
                 }
@@ -395,8 +404,8 @@ namespace WinMaps.Rendering
         {
             public int Type;
             public string SubType;
-            public float[] ScreenX;
-            public float[] ScreenY;
+            public float[] MercX;
+            public float[] MercY;
             public bool IsClosed;
         }
 

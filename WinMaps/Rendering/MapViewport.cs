@@ -43,7 +43,7 @@ namespace WinMaps.Rendering
         /// <summary>
         /// Converts latitude to Mercator Y (in tile-space pixels at current zoom).
         /// </summary>
-        private double LatToMercatorY(double lat)
+        public double LatToMercatorY(double lat)
         {
             double tileSize = 256.0;
             double numTiles = Math.Pow(2, Zoom);
@@ -55,7 +55,7 @@ namespace WinMaps.Rendering
         /// <summary>
         /// Converts longitude to Mercator X (in tile-space pixels at current zoom).
         /// </summary>
-        private double LonToMercatorX(double lon)
+        public double LonToMercatorX(double lon)
         {
             double tileSize = 256.0;
             double numTiles = Math.Pow(2, Zoom);
