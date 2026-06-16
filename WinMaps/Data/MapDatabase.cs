@@ -238,15 +238,37 @@ namespace WinMaps.Data
             // Road=0, Water=1, Park=2
             // Area size uses (max-min) extent in degrees as a proxy for screen-space size
             string sql;
-            if (zoom < 8)
+            if (zoom < 4)
             {
-                // Only motorway/trunk + very large areas
+                // Continental view: motorway only + huge areas
+                sql = @"SELECT type, subtype, geometry FROM ways
+                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
+                          AND max_lon >= @minLon AND min_lon <= @maxLon
+                          AND (
+                            (type = 0 AND subtype IN ('motorway'))
+                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.5)
+                          )";
+            }
+            else if (zoom < 6)
+            {
+                // Country view: motorway/trunk + very large areas
+                sql = @"SELECT type, subtype, geometry FROM ways
+                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
+                          AND max_lon >= @minLon AND min_lon <= @maxLon
+                          AND (
+                            (type = 0 AND subtype IN ('motorway','trunk'))
+                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.05)
+                          )";
+            }
+            else if (zoom < 8)
+            {
+                // Regional view: motorway/trunk + large areas
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
                             (type = 0 AND subtype IN ('motorway','trunk','motorway_link','trunk_link'))
-                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.002)
+                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.005)
                           )";
             }
             else if (zoom < 10)

@@ -241,8 +241,11 @@ namespace WinMaps.Rendering
                 // Minimum squared pixel distance to keep a point (simplification threshold)
                 // More aggressive at lower zoom where detail isn't visible
                 float minDistSq;
-                if (queryZoom < 10) minDistSq = 4.0f;       // 2px
-                else if (queryZoom < 13) minDistSq = 1.0f;  // 1px
+                if (queryZoom < 6) minDistSq = 64.0f;        // 8px
+                else if (queryZoom < 8) minDistSq = 36.0f;   // 6px
+                else if (queryZoom < 10) minDistSq = 16.0f;  // 4px
+                else if (queryZoom < 12) minDistSq = 4.0f;   // 2px
+                else if (queryZoom < 14) minDistSq = 1.0f;   // 1px
                 else minDistSq = 0.25f;                      // 0.5px
 
                 var result = new List<CachedWay>(ways.Count);
