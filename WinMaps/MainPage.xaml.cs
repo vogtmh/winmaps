@@ -975,12 +975,15 @@ namespace WinMaps
 
             float padding = 16f;
             float drawW = W - 2 * padding;
-            float drawH = H - 2 * padding;
+            // Maintain aspect ratio: compute height from width based on lat/lon ratio
+            float drawH = drawW * (float)(latSpan / lonSpan);
+            float offsetY = padding + (H - 2 * padding - drawH) / 2f;
+            if (offsetY < padding) offsetY = padding;
 
             Func<double, double, (float x, float y)> project = (lat, lon) =>
             {
                 float x = padding + (float)((lon - minLon) / lonSpan * drawW);
-                float y = padding + (float)((maxLat - lat) / latSpan * drawH);
+                float y = offsetY + (float)((maxLat - lat) / latSpan * drawH);
                 return (x, y);
             };
 
@@ -1057,9 +1060,6 @@ namespace WinMaps
 
                 DrawPolygonRings(ds, sender, project, country.Geometry, fill, stroke);
             }
-
-            // Draw labels
-            DrawNELabels(ds, project, W, H, drawW, continentStatus);
         }
 
         private void DrawGeofabrikRegions(
@@ -1086,23 +1086,6 @@ namespace WinMaps
 
                 var fill = ChooseMapColor(total, installed);
                 DrawPolygonRings(ds, sender, project, region.Geometry, fill, stroke);
-
-                // Draw label
-                var (minLat, minLon, maxLat, maxLon) = _worldMapViewport;
-                var centroid = ComputeGeometryCentroid(region.Geometry, minLon, maxLon);
-                var cp = project(centroid.lat, centroid.lon);
-                if (cp.x > 0 && cp.x < W && cp.y > 0 && cp.y < H)
-                {
-                    using (var fmt = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat())
-                    {
-                        fmt.FontSize = Math.Max(10f, Math.Min(14f, drawW / 60f));
-                        fmt.HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Center;
-                        fmt.VerticalAlignment = Microsoft.Graphics.Canvas.Text.CanvasVerticalAlignment.Center;
-                        float tw = 120, th = 24;
-                        ds.DrawText(region.Name, cp.x - tw / 2, cp.y - th / 2, tw, th,
-                            Windows.UI.Colors.White, fmt);
-                    }
-                }
             }
         }
 
@@ -1133,69 +1116,6 @@ namespace WinMaps
                     {
                         ds.FillGeometry(geo, fill);
                         ds.DrawGeometry(geo, stroke, 0.5f);
-                    }
-                }
-            }
-        }
-
-        private void DrawNELabels(
-            Microsoft.Graphics.Canvas.CanvasDrawingSession ds,
-            Func<double, double, (float x, float y)> project,
-            float W, float H, float drawW,
-            Dictionary<string, (int total, int installed)> continentStatus)
-        {
-            if (_worldMapLevel == "world")
-            {
-                // Draw one label per continent at a fixed representative position
-                var continentLabels = new Dictionary<string, (double lat, double lon)>
-                {
-                    { "Africa", (5, 20) },
-                    { "Asia", (35, 85) },
-                    { "Europe", (52, 15) },
-                    { "North America", (45, -100) },
-                    { "South America", (-15, -58) },
-                    { "Oceania", (-25, 135) },
-                };
-
-                using (var fmt = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat())
-                {
-                    fmt.FontSize = Math.Max(12f, Math.Min(18f, drawW / 45f));
-                    fmt.HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Center;
-                    fmt.VerticalAlignment = Microsoft.Graphics.Canvas.Text.CanvasVerticalAlignment.Center;
-
-                    foreach (var kv in continentLabels)
-                    {
-                        var cp = project(kv.Value.lat, kv.Value.lon);
-                        if (cp.x > 0 && cp.x < W && cp.y > 0 && cp.y < H)
-                        {
-                            float tw = 160, th = 30;
-                            ds.DrawText(kv.Key, cp.x - tw / 2, cp.y - th / 2, tw, th,
-                                Windows.UI.Colors.White, fmt);
-                        }
-                    }
-                }
-            }
-            else if (_worldMapLevel == "continent")
-            {
-                // Draw country name labels at centroids
-                using (var fmt = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat())
-                {
-                    fmt.FontSize = Math.Max(9f, Math.Min(14f, drawW / 55f));
-                    fmt.HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Center;
-                    fmt.VerticalAlignment = Microsoft.Graphics.Canvas.Text.CanvasVerticalAlignment.Center;
-
-                    var (vpMinLat, vpMinLon, vpMaxLat, vpMaxLon) = _worldMapViewport;
-                    foreach (var country in _worldMapNECountries)
-                    {
-                        if (country.Geometry == null) continue;
-                        var centroid = ComputeGeometryCentroid(country.Geometry, vpMinLon, vpMaxLon);
-                        var cp = project(centroid.lat, centroid.lon);
-                        if (cp.x > 10 && cp.x < W - 10 && cp.y > 10 && cp.y < H - 10)
-                        {
-                            float tw = 100, th = 20;
-                            ds.DrawText(country.Name, cp.x - tw / 2, cp.y - th / 2, tw, th,
-                                Windows.UI.Colors.White, fmt);
-                        }
                     }
                 }
             }
@@ -1301,11 +1221,13 @@ namespace WinMaps
             double lonSpan = maxLon - minLon;
             float padding = 16f;
             float drawW = W - 2 * padding;
-            float drawH = H - 2 * padding;
+            float drawH = drawW * (float)(latSpan / lonSpan);
+            float offsetY = padding + (H - 2 * padding - drawH) / 2f;
+            if (offsetY < padding) offsetY = padding;
 
             // Unproject tap to lat/lon
             double tapLon = minLon + ((pt.X - padding) / drawW) * lonSpan;
-            double tapLat = maxLat - ((pt.Y - padding) / drawH) * latSpan;
+            double tapLat = maxLat - ((pt.Y - offsetY) / drawH) * latSpan;
 
             if (_worldMapLevel == "country" && _worldMapGfRegions != null)
             {
