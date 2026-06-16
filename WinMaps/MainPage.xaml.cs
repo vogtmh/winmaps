@@ -913,7 +913,9 @@ namespace WinMaps
             double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
             foreach (var c in countries)
             {
-                foreach (var ring in c.Geometry)
+                var filtered = GetFilteredGeometry(c) ?? c.Geometry;
+                if (filtered == null) continue;
+                foreach (var ring in filtered)
                     foreach (var p in ring)
                     {
                         if (p.Lat < minLat) minLat = p.Lat;
@@ -1084,7 +1086,7 @@ namespace WinMaps
                         fill = ChooseMapColor(0, 0);
                 }
 
-                DrawPolygonRings(ds, sender, project, country.Geometry, fill, stroke);
+                DrawPolygonRings(ds, sender, project, GetFilteredGeometry(country) ?? country.Geometry, fill, stroke);
             }
         }
 
@@ -1155,6 +1157,100 @@ namespace WinMaps
                 return Windows.UI.Color.FromArgb(255, 50, 140, 70);   // green — complete
             else
                 return Windows.UI.Color.FromArgb(255, 190, 125, 35);  // orange — partial
+        }
+
+        // Approximate bounding boxes per continent — used to filter out overseas territories
+        private static readonly Dictionary<string, (double MinLat, double MinLon, double MaxLat, double MaxLon)> ContinentBounds
+            = new Dictionary<string, (double, double, double, double)>
+        {
+            { "Africa",        (-38, -26, 38, 55) },
+            { "Asia",          (-12, 25, 82, 180) },
+            { "Europe",        (34, -32, 82, 50) },
+            { "North America", (5, -180, 85, -50) },
+            { "South America", (-60, -95, 16, -30) },
+            { "Oceania",       (-50, 100, 0, 180) },
+        };
+
+        /// <summary>
+        /// Filters geometry rings to only those whose centroid falls within the given bounding box.
+        /// Returns null if no rings pass the filter.
+        /// </summary>
+        private static List<List<(double Lat, double Lon)>> FilterRingsByBBox(
+            List<List<(double Lat, double Lon)>> geometry,
+            double bMinLat, double bMinLon, double bMaxLat, double bMaxLon)
+        {
+            if (geometry == null) return null;
+            var result = new List<List<(double Lat, double Lon)>>();
+            foreach (var ring in geometry)
+            {
+                if (ring.Count < 3) continue;
+                // Compute ring centroid
+                double sumLat = 0, sumLon = 0;
+                foreach (var p in ring) { sumLat += p.Lat; sumLon += p.Lon; }
+                double cLat = sumLat / ring.Count;
+                double cLon = sumLon / ring.Count;
+
+                if (cLat >= bMinLat && cLat <= bMaxLat && cLon >= bMinLon && cLon <= bMaxLon)
+                    result.Add(ring);
+            }
+            return result.Count > 0 ? result : null;
+        }
+
+        /// <summary>
+        /// Returns only the mainland rings of a geometry: the largest ring plus any rings
+        /// within 15° of the largest ring's centroid (nearby islands).
+        /// </summary>
+        private static List<List<(double Lat, double Lon)>> GetMainlandRings(
+            List<List<(double Lat, double Lon)>> geometry)
+        {
+            if (geometry == null || geometry.Count <= 1) return geometry;
+
+            // Find largest ring by point count (good enough proxy for area)
+            List<(double Lat, double Lon)> largest = geometry[0];
+            foreach (var ring in geometry)
+                if (ring.Count > largest.Count) largest = ring;
+
+            // Centroid of largest ring
+            double cLat = 0, cLon = 0;
+            foreach (var p in largest) { cLat += p.Lat; cLon += p.Lon; }
+            cLat /= largest.Count;
+            cLon /= largest.Count;
+
+            // Keep rings within 15° of mainland centroid
+            var result = new List<List<(double Lat, double Lon)>>();
+            foreach (var ring in geometry)
+            {
+                double rLat = 0, rLon = 0;
+                foreach (var p in ring) { rLat += p.Lat; rLon += p.Lon; }
+                rLat /= ring.Count;
+                rLon /= ring.Count;
+
+                if (Math.Abs(rLat - cLat) < 15 && Math.Abs(rLon - cLon) < 15)
+                    result.Add(ring);
+            }
+            return result.Count > 0 ? result : geometry;
+        }
+
+        /// <summary>
+        /// Returns the filtered geometry for a country based on the current map level.
+        /// At world/continent level: filters by continent bounding box.
+        /// At country level (leaf): keeps only mainland rings.
+        /// </summary>
+        private List<List<(double Lat, double Lon)>> GetFilteredGeometry(NaturalEarthCountry country)
+        {
+            if (country.Geometry == null) return null;
+
+            if (_worldMapLevel == "world" || _worldMapLevel == "continent")
+            {
+                if (ContinentBounds.TryGetValue(country.Continent, out var bounds))
+                    return FilterRingsByBBox(country.Geometry,
+                        bounds.MinLat, bounds.MinLon, bounds.MaxLat, bounds.MaxLon);
+            }
+            else if (_worldMapLevel == "country")
+            {
+                return GetMainlandRings(country.Geometry);
+            }
+            return country.Geometry;
         }
 
         /// <summary>
@@ -1282,11 +1378,12 @@ namespace WinMaps
             }
             else if (_worldMapNECountries != null)
             {
-                // Hit test against Natural Earth countries
+                // Hit test against Natural Earth countries (filtered to exclude overseas)
                 foreach (var country in _worldMapNECountries)
                 {
-                    if (country.Geometry == null) continue;
-                    if (PointInGeometry(tapLat, tapLon, country.Geometry))
+                    var filtered = GetFilteredGeometry(country);
+                    if (filtered == null) continue;
+                    if (PointInGeometry(tapLat, tapLon, filtered))
                     {
                         OnWorldMapNECountryTapped(country);
                         return;
