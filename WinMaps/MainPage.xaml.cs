@@ -110,6 +110,7 @@ namespace WinMaps
         private async void BtnDownload_Click(object sender, RoutedEventArgs e)
         {
             BtnDownload.IsEnabled = false;
+            BtnCancel.Visibility = Visibility.Visible;
             _cts = new CancellationTokenSource();
 
             var displayRequest = new DisplayRequest();
@@ -160,7 +161,10 @@ namespace WinMaps
             }
             catch (OperationCanceledException)
             {
-                TxtOverlayStatus.Text = "Download cancelled.";
+                TxtOverlayStatus.Text = "Cancelled. Cleaning up...";
+                await CleanupPartialData();
+                TxtOverlayStatus.Text = "Cancelled.";
+                TxtOverlayDetail.Text = "";
                 BtnDownload.IsEnabled = true;
             }
             catch (Exception ex)
@@ -170,8 +174,56 @@ namespace WinMaps
             }
             finally
             {
+                BtnCancel.Visibility = Visibility.Collapsed;
+                BtnCancel.IsEnabled = true;
                 displayRequest.RequestRelease();
             }
+        }
+
+        private void BtnCancel_Click(object sender, RoutedEventArgs e)
+        {
+            _cts?.Cancel();
+            BtnCancel.IsEnabled = false;
+            TxtOverlayStatus.Text = "Cancelling...";
+        }
+
+        private async Task CleanupPartialData()
+        {
+            // Close DB so the file can be deleted
+            _db?.Dispose();
+            _db = null;
+
+            await Task.Run(async () =>
+            {
+                try
+                {
+                    var localFolder = Windows.Storage.ApplicationData.Current.LocalFolder;
+                    var mapsFolder = await localFolder.GetFolderAsync("Maps");
+
+                    // Delete partial download
+                    string partialPath = System.IO.Path.Combine(mapsFolder.Path, _selectedRegion.FileName + ".partial");
+                    if (System.IO.File.Exists(partialPath))
+                        System.IO.File.Delete(partialPath);
+
+                    // Delete completed PBF
+                    string pbfPath = System.IO.Path.Combine(mapsFolder.Path, _selectedRegion.FileName);
+                    if (System.IO.File.Exists(pbfPath))
+                        System.IO.File.Delete(pbfPath);
+
+                    // Delete database
+                    string dbPath = System.IO.Path.Combine(mapsFolder.Path,
+                        System.IO.Path.ChangeExtension(_selectedRegion.FileName, ".db"));
+                    if (System.IO.File.Exists(dbPath))
+                        System.IO.File.Delete(dbPath);
+
+                    // WAL/SHM files
+                    if (System.IO.File.Exists(dbPath + "-wal"))
+                        System.IO.File.Delete(dbPath + "-wal");
+                    if (System.IO.File.Exists(dbPath + "-shm"))
+                        System.IO.File.Delete(dbPath + "-shm");
+                }
+                catch { }
+            });
         }
 
         private async void OnDownloadProgress(DownloadProgress p)
@@ -213,10 +265,11 @@ namespace WinMaps
 
         // ---- Map Rendering ----
 
-        private void RedrawMap()
+        private async void RedrawMap()
         {
             if (_renderer != null)
             {
+                await _renderer.EnsureCacheAsync();
                 _renderer.Draw(MapCanvas);
 
                 if (!double.IsNaN(_gpsLat))

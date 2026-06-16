@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.UI;
 using Windows.UI.Xaml.Controls;
@@ -29,6 +30,8 @@ namespace WinMaps.Rendering
             _viewport = viewport;
         }
 
+        private bool _isLoading;
+
         public void InvalidateCache()
         {
             _cachedWays = null;
@@ -48,8 +51,6 @@ namespace WinMaps.Rendering
             if (_db == null || !_db.HasData())
                 return;
 
-            EnsureCache();
-
             if (_cachedWays == null || _cachedWays.Count == 0)
                 return;
 
@@ -59,8 +60,17 @@ namespace WinMaps.Rendering
             DrawLayer(canvas, _cachedWays, (int)Pbf.OsmElementType.Road);
         }
 
-        private void EnsureCache()
+        /// <summary>
+        /// Loads cache on a background thread then redraws. Returns the Canvas for caller to trigger redraw.
+        /// </summary>
+        public async Task EnsureCacheAsync()
         {
+            if (_isLoading) return;
+
+            double width = _viewport.ScreenWidth;
+            double height = _viewport.ScreenHeight;
+            if (width <= 0 || height <= 0) return;
+
             var bounds = _viewport.GetBounds();
 
             if (_cachedWays != null &&
@@ -82,31 +92,43 @@ namespace WinMaps.Rendering
             _cacheMaxLon = bounds.maxLon + lonMargin;
             _cacheZoom = _viewport.Zoom;
 
-            int typeFilter = -1;
-            var ways = _db.QueryWaysWithGeometry(_cacheMinLat, _cacheMaxLat, _cacheMinLon, _cacheMaxLon, typeFilter);
+            double queryMinLat = _cacheMinLat, queryMaxLat = _cacheMaxLat;
+            double queryMinLon = _cacheMinLon, queryMaxLon = _cacheMaxLon;
+            double queryZoom = _cacheZoom;
 
-            _cachedWays = new List<CachedWay>();
-            int count = 0;
+            _isLoading = true;
 
-            foreach (var (type, subType, points) in ways)
+            var newCachedWays = await Task.Run(() =>
             {
-                if (!ShouldDrawAtZoom(type, subType, _viewport.Zoom))
-                    continue;
+                var ways = _db.QueryWaysWithGeometry(queryMinLat, queryMaxLat, queryMinLon, queryMaxLon, -1);
+                var result = new List<CachedWay>();
+                int count = 0;
 
-                if (count >= MaxWaysPerFrame)
-                    break;
-
-                if (points.Count < 2)
-                    continue;
-
-                _cachedWays.Add(new CachedWay
+                foreach (var (type, subType, points) in ways)
                 {
-                    Type = type,
-                    SubType = subType,
-                    Points = points
-                });
-                count++;
-            }
+                    if (!ShouldDrawAtZoom(type, subType, queryZoom))
+                        continue;
+
+                    if (count >= MaxWaysPerFrame)
+                        break;
+
+                    if (points.Count < 2)
+                        continue;
+
+                    result.Add(new CachedWay
+                    {
+                        Type = type,
+                        SubType = subType,
+                        Points = points
+                    });
+                    count++;
+                }
+
+                return result;
+            });
+
+            _cachedWays = newCachedWays;
+            _isLoading = false;
         }
 
         private bool ShouldDrawAtZoom(int type, string subType, double zoom)

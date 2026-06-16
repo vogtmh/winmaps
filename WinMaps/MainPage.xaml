@@ -69,6 +69,10 @@
                 <Button x:Name="BtnDownload" Content="Download Stuttgart Region"
                         HorizontalAlignment="Center"
                         Click="BtnDownload_Click" />
+                <Button x:Name="BtnCancel" Content="Cancel"
+                        HorizontalAlignment="Center" Margin="0,8,0,0"
+                        Visibility="Collapsed"
+                        Click="BtnCancel_Click" />
             </StackPanel>
         </Grid>
     </Grid>
