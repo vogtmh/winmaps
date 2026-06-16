@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Graphics.Canvas.UI.Xaml;
 using Windows.Devices.Geolocation;
 using Windows.Foundation;
 using Windows.System.Display;
@@ -67,6 +68,8 @@ namespace WinMaps
             _cts?.Cancel();
             _geolocator = null;
             _db?.Dispose();
+            MapCanvas.RemoveFromVisualTree();
+            MapCanvas = null;
         }
 
         private async Task InitializeAsync()
@@ -265,19 +268,30 @@ namespace WinMaps
 
         // ---- Map Rendering ----
 
+        private void MapCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+        {
+            _viewport.ScreenWidth = sender.ActualWidth;
+            _viewport.ScreenHeight = sender.ActualHeight;
+
+            if (_renderer != null)
+            {
+                _renderer.Draw(args.DrawingSession, sender);
+
+                if (!double.IsNaN(_gpsLat))
+                {
+                    _renderer.DrawGpsPosition(args.DrawingSession, _gpsLat, _gpsLon, _gpsAccuracy);
+                }
+            }
+        }
+
         private async void RedrawMap()
         {
             if (_renderer != null)
             {
                 await _renderer.EnsureCacheAsync();
-                _renderer.Draw(MapCanvas);
-
-                if (!double.IsNaN(_gpsLat))
-                {
-                    _renderer.DrawGpsPosition(MapCanvas, _gpsLat, _gpsLon, _gpsAccuracy);
-                }
             }
 
+            MapCanvas.Invalidate();
             TxtZoom.Text = $"Z{_viewport.Zoom:F0}";
             TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
         }
@@ -286,7 +300,6 @@ namespace WinMaps
         {
             _viewport.ScreenWidth = e.NewSize.Width;
             _viewport.ScreenHeight = e.NewSize.Height;
-            _renderer?.InvalidateCache();
             RedrawMap();
         }
 
@@ -312,8 +325,7 @@ namespace WinMaps
             _viewport.Pan(dx, dy);
             _panStart = point.Position;
             _followGps = false;
-            _renderer?.InvalidateCache();
-            RedrawMap();
+            MapCanvas.Invalidate();
             e.Handled = true;
         }
 
@@ -321,6 +333,7 @@ namespace WinMaps
         {
             _isPanning = false;
             ((UIElement)sender).ReleasePointerCapture(e.Pointer);
+            RedrawMap();
             e.Handled = true;
         }
 
@@ -332,7 +345,6 @@ namespace WinMaps
 
             _viewport.ZoomAt(point.Position.X, point.Position.Y, zoomDelta);
             _followGps = false;
-            _renderer?.InvalidateCache();
             RedrawMap();
             e.Handled = true;
         }
@@ -348,8 +360,7 @@ namespace WinMaps
             }
 
             _followGps = false;
-            _renderer?.InvalidateCache();
-            RedrawMap();
+            MapCanvas.Invalidate();
             e.Handled = true;
         }
 
@@ -358,14 +369,12 @@ namespace WinMaps
         private void BtnZoomIn_Click(object sender, RoutedEventArgs e)
         {
             _viewport.ZoomAt(_viewport.ScreenWidth / 2, _viewport.ScreenHeight / 2, 1);
-            _renderer?.InvalidateCache();
             RedrawMap();
         }
 
         private void BtnZoomOut_Click(object sender, RoutedEventArgs e)
         {
             _viewport.ZoomAt(_viewport.ScreenWidth / 2, _viewport.ScreenHeight / 2, -1);
-            _renderer?.InvalidateCache();
             RedrawMap();
         }
 
@@ -378,7 +387,6 @@ namespace WinMaps
                 _viewport.CenterLat = _gpsLat;
                 _viewport.CenterLon = _gpsLon;
                 _followGps = true;
-                _renderer?.InvalidateCache();
                 RedrawMap();
             }
             else
@@ -434,7 +442,6 @@ namespace WinMaps
             {
                 _viewport.CenterLat = _gpsLat;
                 _viewport.CenterLon = _gpsLon;
-                _renderer?.InvalidateCache();
             }
 
             RedrawMap();

@@ -2,12 +2,14 @@
     x:Class="WinMaps.MainPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:canvas="using:Microsoft.Graphics.Canvas.UI.Xaml"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
     <Grid>
-        <!-- Map canvas (fills entire page) -->
-        <Canvas x:Name="MapCanvas"
-                Background="#FFF2EFE9"
+        <!-- Map surface (Win2D GPU-accelerated) -->
+        <canvas:CanvasControl x:Name="MapCanvas"
+                ClearColor="#FFF2EFE9"
+                Draw="MapCanvas_Draw"
                 PointerPressed="MapCanvas_PointerPressed"
                 PointerMoved="MapCanvas_PointerMoved"
                 PointerReleased="MapCanvas_PointerReleased"
