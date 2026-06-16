@@ -13,6 +13,7 @@ namespace WinMaps.Data
 
         // Prepared statement for import
         private SqliteCommand _insertWayCmd;
+        private SqliteCommand _insertPoiCmd;
 
         public MapDatabase(string dbPath)
         {
@@ -54,12 +55,23 @@ namespace WinMaps.Data
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )");
+
+            Execute(@"
+                CREATE TABLE IF NOT EXISTS pois (
+                    id INTEGER PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    subtype TEXT,
+                    name TEXT,
+                    lat REAL NOT NULL,
+                    lon REAL NOT NULL
+                )");
         }
 
         public void CreateSpatialIndex()
         {
             Execute("CREATE INDEX IF NOT EXISTS idx_ways_bounds ON ways(min_lat, max_lat, min_lon, max_lon)");
             Execute("CREATE INDEX IF NOT EXISTS idx_ways_type_bounds ON ways(type, min_lat, max_lat, min_lon, max_lon)");
+            Execute("CREATE INDEX IF NOT EXISTS idx_pois_coords ON pois(lat, lon)");
         }
 
         public SqliteTransaction BeginTransaction()
@@ -85,12 +97,25 @@ namespace WinMaps.Data
             _insertWayCmd.Parameters.Add(new SqliteParameter("@minLon", SqliteType.Real));
             _insertWayCmd.Parameters.Add(new SqliteParameter("@maxLon", SqliteType.Real));
             _insertWayCmd.Prepare();
+
+            _insertPoiCmd = _connection.CreateCommand();
+            _insertPoiCmd.CommandText = @"INSERT OR IGNORE INTO pois(id, type, subtype, name, lat, lon)
+                                          VALUES(@id, @type, @sub, @name, @lat, @lon)";
+            _insertPoiCmd.Parameters.Add(new SqliteParameter("@id", SqliteType.Integer));
+            _insertPoiCmd.Parameters.Add(new SqliteParameter("@type", SqliteType.Text));
+            _insertPoiCmd.Parameters.Add(new SqliteParameter("@sub", SqliteType.Text));
+            _insertPoiCmd.Parameters.Add(new SqliteParameter("@name", SqliteType.Text));
+            _insertPoiCmd.Parameters.Add(new SqliteParameter("@lat", SqliteType.Real));
+            _insertPoiCmd.Parameters.Add(new SqliteParameter("@lon", SqliteType.Real));
+            _insertPoiCmd.Prepare();
         }
 
         public void DisposeInsertStatement()
         {
             _insertWayCmd?.Dispose();
             _insertWayCmd = null;
+            _insertPoiCmd?.Dispose();
+            _insertPoiCmd = null;
         }
 
         public void InsertWay(long id, int type, string subType, byte[] geometry,
@@ -106,6 +131,19 @@ namespace WinMaps.Data
             _insertWayCmd.Parameters["@minLon"].Value = minLon;
             _insertWayCmd.Parameters["@maxLon"].Value = maxLon;
             _insertWayCmd.ExecuteNonQuery();
+        }
+
+        public void InsertPoi(long id, string type, string subType, string name,
+            double lat, double lon, SqliteTransaction tx)
+        {
+            _insertPoiCmd.Transaction = tx;
+            _insertPoiCmd.Parameters["@id"].Value = id;
+            _insertPoiCmd.Parameters["@type"].Value = type;
+            _insertPoiCmd.Parameters["@sub"].Value = (object)subType ?? DBNull.Value;
+            _insertPoiCmd.Parameters["@name"].Value = (object)name ?? DBNull.Value;
+            _insertPoiCmd.Parameters["@lat"].Value = lat;
+            _insertPoiCmd.Parameters["@lon"].Value = lon;
+            _insertPoiCmd.ExecuteNonQuery();
         }
 
         public void SetMetadata(string key, string value)
@@ -406,6 +444,41 @@ namespace WinMaps.Data
                 }
             }
             return null;
+        }
+
+        /// <summary>
+        /// Queries POIs within the given bounding box.
+        /// </summary>
+        public List<(string type, string subType, string name, double lat, double lon)> QueryPois(
+            double minLat, double maxLat, double minLon, double maxLon)
+        {
+            var result = new List<(string, string, string, double, double)>();
+
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = @"SELECT type, subtype, name, lat, lon FROM pois
+                                    WHERE lat >= @minLat AND lat <= @maxLat
+                                      AND lon >= @minLon AND lon <= @maxLon";
+                cmd.Parameters.AddWithValue("@minLat", minLat);
+                cmd.Parameters.AddWithValue("@maxLat", maxLat);
+                cmd.Parameters.AddWithValue("@minLon", minLon);
+                cmd.Parameters.AddWithValue("@maxLon", maxLon);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        result.Add((
+                            reader.GetString(0),
+                            reader.IsDBNull(1) ? null : reader.GetString(1),
+                            reader.IsDBNull(2) ? null : reader.GetString(2),
+                            reader.GetDouble(3),
+                            reader.GetDouble(4)));
+                    }
+                }
+            }
+
+            return result;
         }
 
         // ---- Geometry blob encoding/decoding ----

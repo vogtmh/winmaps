@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Threading.Tasks;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Geometry;
+using Microsoft.Graphics.Canvas.Text;
 using Windows.UI;
 using WinMaps.Data;
 
@@ -22,6 +24,7 @@ namespace WinMaps.Rendering
 
         // Cached way geometries for the current viewport
         private List<CachedWay> _cachedWays;
+        private List<CachedPoi> _cachedPois;
         private double _cacheMinLat, _cacheMaxLat, _cacheMinLon, _cacheMaxLon;
         private double _cacheZoom;
         private const double CacheMarginFactor = 0.5;
@@ -46,6 +49,7 @@ namespace WinMaps.Rendering
         public void InvalidateCache()
         {
             _cachedWays = null;
+            _cachedPois = null;
         }
 
         public void Draw(CanvasDrawingSession ds, ICanvasResourceCreator rc)
@@ -85,6 +89,12 @@ namespace WinMaps.Rendering
                 if (way.Type != (int)Pbf.OsmElementType.Road) continue;
                 float width = GetRoadWidth(way.SubType, _viewport.Zoom);
                 DrawPolyline(ds, rc, way.Points, _theme.GetRoadColor(way.SubType), width);
+            }
+
+            // POIs (drawn on top of everything)
+            if (_cachedPois != null && _viewport.Zoom >= 15)
+            {
+                DrawPois(ds);
             }
         }
 
@@ -145,7 +155,30 @@ namespace WinMaps.Rendering
                 return result;
             });
 
+            List<CachedPoi> newCachedPois = null;
+            if (queryZoom >= 15)
+            {
+                newCachedPois = await Task.Run(() =>
+                {
+                    var pois = _db.QueryPois(queryMinLat, queryMaxLat, queryMinLon, queryMaxLon);
+                    var result = new List<CachedPoi>(pois.Count);
+                    foreach (var (type, subType, name, lat, lon) in pois)
+                    {
+                        result.Add(new CachedPoi
+                        {
+                            Type = type,
+                            SubType = subType,
+                            Name = name,
+                            Lat = lat,
+                            Lon = lon
+                        });
+                    }
+                    return result;
+                });
+            }
+
             _cachedWays = newCachedWays;
+            _cachedPois = newCachedPois;
             _isLoading = false;
 
             // If a reload was requested while we were loading, re-run
@@ -288,6 +321,78 @@ namespace WinMaps.Rendering
             public int Type;
             public string SubType;
             public List<(double lat, double lon)> Points;
+        }
+
+        private class CachedPoi
+        {
+            public string Type;
+            public string SubType;
+            public string Name;
+            public double Lat;
+            public double Lon;
+        }
+
+        // ---- POI rendering ----
+
+        private void DrawPois(CanvasDrawingSession ds)
+        {
+            if (_cachedPois == null || _cachedPois.Count == 0) return;
+
+            float fontSize = _viewport.Zoom >= 17 ? 12f : 10f;
+            float dotRadius = _viewport.Zoom >= 17 ? 4f : 3f;
+
+            // Grid-based label deconfliction: divide screen into cells
+            int cellSize = 80; // pixels per cell
+            int cols = (int)(_viewport.ScreenWidth / cellSize) + 1;
+            int rows = (int)(_viewport.ScreenHeight / cellSize) + 1;
+            var occupied = new bool[cols * rows];
+
+            using (var textFormat = new CanvasTextFormat
+            {
+                FontSize = fontSize,
+                HorizontalAlignment = CanvasHorizontalAlignment.Left,
+                VerticalAlignment = CanvasVerticalAlignment.Center
+            })
+            {
+                foreach (var poi in _cachedPois)
+                {
+                    var (x, y) = _viewport.GeoToScreen(poi.Lat, poi.Lon);
+
+                    // Skip if off screen
+                    if (x < -20 || x > _viewport.ScreenWidth + 20 ||
+                        y < -20 || y > _viewport.ScreenHeight + 20)
+                        continue;
+
+                    // Draw dot
+                    Color dotColor = _theme.PoiDotColor;
+                    ds.FillCircle(x, y, dotRadius + 1, _theme.PoiHaloColor);
+                    ds.FillCircle(x, y, dotRadius, dotColor);
+
+                    // Draw label if we have a name and the cell isn't occupied
+                    if (!string.IsNullOrEmpty(poi.Name))
+                    {
+                        int col = (int)(x / cellSize);
+                        int row = (int)(y / cellSize);
+                        if (col >= 0 && col < cols && row >= 0 && row < rows)
+                        {
+                            int cellIdx = row * cols + col;
+                            if (!occupied[cellIdx])
+                            {
+                                occupied[cellIdx] = true;
+                                float textX = x + dotRadius + 3;
+                                float textY = y;
+
+                                // Text with halo effect: draw dark outline then light text
+                                ds.DrawText(poi.Name, textX - 1, textY, _theme.PoiHaloColor, textFormat);
+                                ds.DrawText(poi.Name, textX + 1, textY, _theme.PoiHaloColor, textFormat);
+                                ds.DrawText(poi.Name, textX, textY - 1, _theme.PoiHaloColor, textFormat);
+                                ds.DrawText(poi.Name, textX, textY + 1, _theme.PoiHaloColor, textFormat);
+                                ds.DrawText(poi.Name, textX, textY, _theme.PoiTextColor, textFormat);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

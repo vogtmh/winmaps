@@ -20,6 +20,9 @@ namespace WinMaps.Rendering
         public Color DefaultRoadColor;
         public Color DefaultRoadOutlineColor;
         public Color DefaultParkColor;
+        public Color PoiDotColor;
+        public Color PoiHaloColor;
+        public Color PoiTextColor;
 
         public Color GetRoadColor(string subType)
         {
@@ -57,6 +60,9 @@ namespace WinMaps.Rendering
             DefaultRoadColor = Color.FromArgb(255, 200, 200, 200),
             DefaultRoadOutlineColor = Color.FromArgb(255, 190, 190, 190),
             DefaultParkColor = Color.FromArgb(255, 195, 225, 178),
+            PoiDotColor = Color.FromArgb(255, 180, 60, 60),
+            PoiHaloColor = Colors.White,
+            PoiTextColor = Color.FromArgb(255, 80, 40, 40),
             RoadColors = new Dictionary<string, Color>
             {
                 ["motorway"] = Color.FromArgb(255, 233, 144, 160),
@@ -113,6 +119,9 @@ namespace WinMaps.Rendering
             DefaultRoadColor = Color.FromArgb(255, 60, 60, 66),
             DefaultRoadOutlineColor = Color.FromArgb(255, 45, 45, 50),
             DefaultParkColor = Color.FromArgb(255, 30, 50, 35),
+            PoiDotColor = Color.FromArgb(255, 200, 120, 100),
+            PoiHaloColor = Color.FromArgb(255, 28, 28, 32),
+            PoiTextColor = Color.FromArgb(255, 210, 180, 170),
             RoadColors = new Dictionary<string, Color>
             {
                 ["motorway"] = Color.FromArgb(255, 140, 60, 80),
@@ -169,6 +178,9 @@ namespace WinMaps.Rendering
             DefaultRoadColor = Color.FromArgb(255, 200, 200, 200),
             DefaultRoadOutlineColor = Color.FromArgb(255, 180, 180, 180),
             DefaultParkColor = Color.FromArgb(255, 189, 215, 165),
+            PoiDotColor = Color.FromArgb(255, 214, 72, 49),
+            PoiHaloColor = Colors.White,
+            PoiTextColor = Color.FromArgb(255, 100, 50, 40),
             RoadColors = new Dictionary<string, Color>
             {
                 ["motorway"] = Color.FromArgb(255, 255, 183, 77),
@@ -225,6 +237,9 @@ namespace WinMaps.Rendering
             DefaultRoadColor = Color.FromArgb(255, 40, 40, 55),
             DefaultRoadOutlineColor = Color.FromArgb(255, 25, 25, 35),
             DefaultParkColor = Color.FromArgb(255, 10, 30, 20),
+            PoiDotColor = Color.FromArgb(255, 255, 0, 200),
+            PoiHaloColor = Color.FromArgb(255, 10, 10, 18),
+            PoiTextColor = Color.FromArgb(255, 200, 100, 255),
             RoadColors = new Dictionary<string, Color>
             {
                 ["motorway"] = Color.FromArgb(255, 255, 0, 100),

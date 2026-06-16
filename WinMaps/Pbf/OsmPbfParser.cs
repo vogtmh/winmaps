@@ -30,11 +30,27 @@ namespace WinMaps.Pbf
         public long[] NodeRefs;
     }
 
+    internal struct OsmPoi
+    {
+        public long Id;
+        public string Type;    // amenity, shop, tourism, etc.
+        public string SubType; // restaurant, supermarket, hotel, etc.
+        public string Name;
+        public double Lat;
+        public double Lon;
+    }
+
     internal class OsmPbfParser
     {
         public event Action<OsmNode> OnNode;
         public event Action<OsmWay> OnWay;
+        public event Action<OsmPoi> OnPoi;
         public event Action<long, long> OnProgress; // bytesRead, totalBytes
+
+        private static readonly HashSet<string> PoiKeys = new HashSet<string>
+        {
+            "amenity", "shop", "tourism", "healthcare", "office"
+        };
 
         private static readonly HashSet<string> RoadKeys = new HashSet<string>
         {
@@ -318,6 +334,7 @@ namespace WinMaps.Pbf
             byte[] idData = null; int idOff = 0, idLen = 0;
             byte[] latData = null; int latOff = 0, latLen = 0;
             byte[] lonData = null; int lonOff = 0, lonLen = 0;
+            byte[] kvData = null; int kvOff = 0, kvLen = 0;
 
             using (var ms = new MemoryStream(blockData, pgOffset, pgLength))
             {
@@ -345,6 +362,12 @@ namespace WinMaps.Pbf
                             lonData = blockData;
                             ms.Position += lonLen;
                             break;
+                        case 10: // keys_vals - packed int32
+                            kvLen = (int)reader.ReadVarInt();
+                            kvOff = pgOffset + (int)ms.Position;
+                            kvData = blockData;
+                            ms.Position += kvLen;
+                            break;
                         default:
                             reader.SkipField(wire);
                             break;
@@ -368,6 +391,16 @@ namespace WinMaps.Pbf
             long runId = 0, runLat = 0, runLon = 0;
             int count = Math.Min(ids.Count, Math.Min(lats.Count, lons.Count));
 
+            // Decode keys_vals for POI detection
+            // Format: interleaved [key_idx, val_idx, key_idx, val_idx, ..., 0] per node
+            // A 0 separates nodes
+            var kvValues = new List<long>();
+            if (kvData != null && OnPoi != null)
+            {
+                PbfReader.ReadPackedVarInts(kvData, kvOff, kvLen, v => kvValues.Add(v));
+            }
+            int kvPos = 0;
+
             for (int i = 0; i < count; i++)
             {
                 runId += ids[i];
@@ -378,6 +411,48 @@ namespace WinMaps.Pbf
                 double lon = 0.000000001 * (lonOffset + (granularity * runLon));
 
                 OnNode?.Invoke(new OsmNode { Id = runId, Lat = lat, Lon = lon });
+
+                // Check tags for POI classification
+                if (kvValues.Count > 0 && OnPoi != null)
+                {
+                    string poiType = null, poiSubType = null, poiName = null;
+
+                    while (kvPos < kvValues.Count && kvValues[kvPos] != 0)
+                    {
+                        if (kvPos + 1 >= kvValues.Count) break;
+                        int keyIdx = (int)kvValues[kvPos];
+                        int valIdx = (int)kvValues[kvPos + 1];
+                        kvPos += 2;
+
+                        string key = (keyIdx < strings.Count) ? strings[keyIdx] : "";
+                        string val = (valIdx < strings.Count) ? strings[valIdx] : "";
+
+                        if (PoiKeys.Contains(key))
+                        {
+                            poiType = key;
+                            poiSubType = val;
+                        }
+                        else if (key == "name")
+                        {
+                            poiName = val;
+                        }
+                    }
+                    // Skip the 0 separator
+                    if (kvPos < kvValues.Count) kvPos++;
+
+                    if (poiType != null)
+                    {
+                        OnPoi.Invoke(new OsmPoi
+                        {
+                            Id = runId,
+                            Type = poiType,
+                            SubType = poiSubType,
+                            Name = poiName,
+                            Lat = lat,
+                            Lon = lon
+                        });
+                    }
+                }
             }
         }
 
