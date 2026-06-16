@@ -29,6 +29,7 @@ namespace WinMaps
         private double _gpsLon = double.NaN;
         private double _gpsAccuracy = 0;
         private bool _followGps = false;
+        private bool _initialGpsCentered = false;
 
         // Pan state
         private bool _isPanning = false;
@@ -88,8 +89,8 @@ namespace WinMaps
                     var bounds = _db.GetBounds();
                     if (bounds.HasValue)
                     {
-                        _viewport.ZoomToBounds(bounds.Value.minLat, bounds.Value.maxLat,
-                            bounds.Value.minLon, bounds.Value.maxLon);
+                        _viewport.CenterLat = (bounds.Value.minLat + bounds.Value.maxLat) / 2.0;
+                        _viewport.CenterLon = (bounds.Value.minLon + bounds.Value.maxLon) / 2.0;
                     }
 
                     OverlayPanel.Visibility = Visibility.Collapsed;
@@ -438,7 +439,14 @@ namespace WinMaps
             _gpsLon = coord.Point.Position.Longitude;
             _gpsAccuracy = coord.Accuracy;
 
-            if (_followGps)
+            if (!_initialGpsCentered)
+            {
+                _viewport.CenterLat = _gpsLat;
+                _viewport.CenterLon = _gpsLon;
+                _initialGpsCentered = true;
+                _followGps = true;
+            }
+            else if (_followGps)
             {
                 _viewport.CenterLat = _gpsLat;
                 _viewport.CenterLon = _gpsLon;
