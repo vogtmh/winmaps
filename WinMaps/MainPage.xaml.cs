@@ -8,11 +8,13 @@ using Windows.Devices.Geolocation;
 using Windows.Foundation;
 using Windows.Storage;
 using Windows.System.Display;
+using Windows.UI;
 using Windows.UI.Core;
 using Windows.UI.Popups;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
+using Windows.UI.Xaml.Media;
 using WinMaps.Data;
 using WinMaps.Download;
 using WinMaps.Rendering;
@@ -91,6 +93,7 @@ namespace WinMaps
             this.Loaded += MainPage_Loaded;
             this.Unloaded += MainPage_Unloaded;
             Application.Current.Suspending += (s, args) => SaveViewport();
+            Application.Current.Resuming += OnAppResuming;
 
             RestoreViewport();
             ApplyThemeBackground();
@@ -150,8 +153,20 @@ namespace WinMaps
             }
         }
 
+        private void OnAppResuming(object sender, object e)
+        {
+            // Re-initialize GPS after suspend — the geolocator stops delivering updates
+            if (_geolocator != null)
+            {
+                _geolocator.PositionChanged -= OnGpsPositionChanged;
+                _geolocator = null;
+                StartGps();
+            }
+        }
+
         private void MainPage_Unloaded(object sender, RoutedEventArgs e)
         {
+            Application.Current.Resuming -= OnAppResuming;
             Windows.UI.Core.SystemNavigationManager.GetForCurrentView().BackRequested -= OnBackRequested;
             SaveViewport();
             _cts?.Cancel();
@@ -1062,6 +1077,7 @@ namespace WinMaps
                 };
 
                 _geolocator.PositionChanged += OnGpsPositionChanged;
+                GpsIcon.Foreground = new SolidColorBrush(Colors.Gold);
 
                 var pos = await _geolocator.GetGeopositionAsync();
                 UpdateGpsPosition(pos.Coordinate);

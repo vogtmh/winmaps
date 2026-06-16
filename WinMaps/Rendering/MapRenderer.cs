@@ -57,45 +57,128 @@ namespace WinMaps.Rendering
             if (_cachedWays == null || _cachedWays.Count == 0) return;
 
             // Layer order: parks → water → road outlines → roads
-            foreach (var way in _cachedWays)
-            {
-                if (way.Type == (int)Pbf.OsmElementType.Park)
-                    DrawArea(ds, rc, way, _theme.GetParkColor(way.SubType));
-            }
+            // Batch all ways of same color into a single CanvasGeometry for massive draw-call reduction
 
-            foreach (var way in _cachedWays)
-            {
-                if (way.Type == (int)Pbf.OsmElementType.Water)
-                    DrawArea(ds, rc, way, _theme.WaterColor);
-            }
+            // Parks: batch by park color
+            DrawBatchedAreas(ds, rc, (int)Pbf.OsmElementType.Park,
+                w => _theme.GetParkColor(w.SubType));
 
-            // Road outlines (drawn first, thicker, darker)
+            // Water: single color
+            DrawBatchedAreas(ds, rc, (int)Pbf.OsmElementType.Water,
+                w => _theme.WaterColor);
+
+            // Road outlines (only at zoom >= 13)
             if (_viewport.Zoom >= 13)
             {
-                foreach (var way in _cachedWays)
-                {
-                    if (way.Type != (int)Pbf.OsmElementType.Road) continue;
-                    float width = GetRoadWidth(way.SubType, _viewport.Zoom);
-                    if (width >= 2)
-                    {
-                        DrawPolyline(ds, rc, way.Points, _theme.GetRoadOutlineColor(way.SubType), width + 2);
-                    }
-                }
+                DrawBatchedLines(ds, rc, (int)Pbf.OsmElementType.Road,
+                    w => _theme.GetRoadOutlineColor(w.SubType),
+                    w => { float wid = GetRoadWidth(w.SubType, _viewport.Zoom); return wid >= 2 ? wid + 2 : -1; });
             }
 
             // Road fills
-            foreach (var way in _cachedWays)
-            {
-                if (way.Type != (int)Pbf.OsmElementType.Road) continue;
-                float width = GetRoadWidth(way.SubType, _viewport.Zoom);
-                DrawPolyline(ds, rc, way.Points, _theme.GetRoadColor(way.SubType), width);
-            }
+            DrawBatchedLines(ds, rc, (int)Pbf.OsmElementType.Road,
+                w => _theme.GetRoadColor(w.SubType),
+                w => GetRoadWidth(w.SubType, _viewport.Zoom));
 
             // POIs (drawn on top of everything)
             if (_cachedPois != null && _viewport.Zoom >= 15)
             {
                 DrawPois(ds);
             }
+        }
+
+        private void DrawBatchedAreas(CanvasDrawingSession ds, ICanvasResourceCreator rc,
+            int typeFilter, Func<CachedWay, Color> colorFunc)
+        {
+            // Group by color, build one combined geometry per color
+            var batches = new Dictionary<uint, List<CachedWay>>();
+
+            foreach (var way in _cachedWays)
+            {
+                if (way.Type != typeFilter || way.ScreenX.Length < 3) continue;
+                uint colorKey = ColorToUint(colorFunc(way));
+                if (!batches.TryGetValue(colorKey, out var list))
+                {
+                    list = new List<CachedWay>();
+                    batches[colorKey] = list;
+                }
+                list.Add(way);
+            }
+
+            foreach (var kvp in batches)
+            {
+                Color color = UintToColor(kvp.Key);
+                using (var pb = new CanvasPathBuilder(rc))
+                {
+                    foreach (var way in kvp.Value)
+                    {
+                        pb.BeginFigure(way.ScreenX[0], way.ScreenY[0]);
+                        for (int i = 1; i < way.ScreenX.Length; i++)
+                            pb.AddLine(way.ScreenX[i], way.ScreenY[i]);
+                        pb.EndFigure(way.IsClosed ? CanvasFigureLoop.Closed : CanvasFigureLoop.Open);
+                    }
+                    using (var geo = CanvasGeometry.CreatePath(pb))
+                    {
+                        ds.FillGeometry(geo, color);
+                    }
+                }
+            }
+        }
+
+        private void DrawBatchedLines(CanvasDrawingSession ds, ICanvasResourceCreator rc,
+            int typeFilter, Func<CachedWay, Color> colorFunc, Func<CachedWay, float> widthFunc)
+        {
+            // Group by (color, width), build one combined geometry per group
+            var batches = new Dictionary<ulong, (Color color, float width, List<CachedWay> ways)>();
+
+            foreach (var way in _cachedWays)
+            {
+                if (way.Type != typeFilter || way.ScreenX.Length < 2) continue;
+                float w = widthFunc(way);
+                if (w < 0) continue; // skip (used for outline filter)
+                Color c = colorFunc(way);
+
+                // Combine color + quantized width into a single key
+                uint ck = ColorToUint(c);
+                uint wk = (uint)(w * 10); // 0.1px granularity
+                ulong key = ((ulong)ck << 32) | wk;
+
+                if (!batches.TryGetValue(key, out var batch))
+                {
+                    batch = (c, w, new List<CachedWay>());
+                    batches[key] = batch;
+                }
+                batch.ways.Add(way);
+            }
+
+            foreach (var kvp in batches)
+            {
+                var (color, width, ways) = kvp.Value;
+                using (var pb = new CanvasPathBuilder(rc))
+                {
+                    foreach (var way in ways)
+                    {
+                        pb.BeginFigure(way.ScreenX[0], way.ScreenY[0]);
+                        for (int i = 1; i < way.ScreenX.Length; i++)
+                            pb.AddLine(way.ScreenX[i], way.ScreenY[i]);
+                        pb.EndFigure(CanvasFigureLoop.Open);
+                    }
+                    using (var geo = CanvasGeometry.CreatePath(pb))
+                    {
+                        ds.DrawGeometry(geo, color, width, _roundStroke);
+                    }
+                }
+            }
+        }
+
+        private static uint ColorToUint(Color c)
+        {
+            return ((uint)c.A << 24) | ((uint)c.R << 16) | ((uint)c.G << 8) | c.B;
+        }
+
+        private static Color UintToColor(uint v)
+        {
+            return Color.FromArgb((byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v);
         }
 
         public async Task EnsureCacheAsync()
@@ -141,14 +224,64 @@ namespace WinMaps.Rendering
             {
                 var ways = _db.QueryWaysForZoom(queryMinLat, queryMaxLat, queryMinLon, queryMaxLon, queryZoom);
 
+                // Minimum squared pixel distance to keep a point (simplification threshold)
+                // More aggressive at lower zoom where detail isn't visible
+                float minDistSq;
+                if (queryZoom < 10) minDistSq = 4.0f;       // 2px
+                else if (queryZoom < 13) minDistSq = 1.0f;  // 1px
+                else minDistSq = 0.25f;                      // 0.5px
+
                 var result = new List<CachedWay>(ways.Count);
                 foreach (var (type, subType, points) in ways)
                 {
+                    if (points.Count < 2) continue;
+
+                    // Pre-compute screen coordinates + simplify
+                    var sx = new List<float>(points.Count);
+                    var sy = new List<float>(points.Count);
+
+                    var (firstX, firstY) = _viewport.GeoToScreen(points[0].lat, points[0].lon);
+                    sx.Add(firstX);
+                    sy.Add(firstY);
+                    float lastKeptX = firstX, lastKeptY = firstY;
+
+                    for (int i = 1; i < points.Count; i++)
+                    {
+                        var (px, py) = _viewport.GeoToScreen(points[i].lat, points[i].lon);
+
+                        // Always keep the last point; skip intermediate points too close
+                        if (i < points.Count - 1)
+                        {
+                            float dx = px - lastKeptX;
+                            float dy = py - lastKeptY;
+                            if (dx * dx + dy * dy < minDistSq)
+                                continue;
+                        }
+
+                        sx.Add(px);
+                        sy.Add(py);
+                        lastKeptX = px;
+                        lastKeptY = py;
+                    }
+
+                    if (sx.Count < 2) continue;
+
+                    // Determine if area is closed
+                    bool isClosed = false;
+                    if (type != (int)Pbf.OsmElementType.Road && sx.Count >= 3)
+                    {
+                        float cdx = sx[0] - sx[sx.Count - 1];
+                        float cdy = sy[0] - sy[sy.Count - 1];
+                        isClosed = (cdx * cdx + cdy * cdy) < 4.0f; // within 2px
+                    }
+
                     result.Add(new CachedWay
                     {
                         Type = type,
                         SubType = subType,
-                        Points = points
+                        ScreenX = sx.ToArray(),
+                        ScreenY = sy.ToArray(),
+                        IsClosed = isClosed
                     });
                 }
 
@@ -190,64 +323,6 @@ namespace WinMaps.Rendering
         }
 
         // ---- Drawing helpers ----
-
-        private void DrawArea(CanvasDrawingSession ds, ICanvasResourceCreator rc,
-            CachedWay way, Color fillColor)
-        {
-            if (way.Points.Count < 3) return;
-
-            var first = way.Points[0];
-            var last = way.Points[way.Points.Count - 1];
-            bool isClosed = Math.Abs(first.lat - last.lat) < 0.0000001 &&
-                           Math.Abs(first.lon - last.lon) < 0.0000001;
-
-            if (isClosed)
-            {
-                using (var pb = new CanvasPathBuilder(rc))
-                {
-                    var (x0, y0) = _viewport.GeoToScreen(way.Points[0].lat, way.Points[0].lon);
-                    pb.BeginFigure(x0, y0);
-                    for (int i = 1; i < way.Points.Count; i++)
-                    {
-                        var (x, y) = _viewport.GeoToScreen(way.Points[i].lat, way.Points[i].lon);
-                        pb.AddLine(x, y);
-                    }
-                    pb.EndFigure(CanvasFigureLoop.Closed);
-
-                    using (var geo = CanvasGeometry.CreatePath(pb))
-                    {
-                        ds.FillGeometry(geo, fillColor);
-                    }
-                }
-            }
-            else
-            {
-                DrawPolyline(ds, rc, way.Points, fillColor, 2);
-            }
-        }
-
-        private void DrawPolyline(CanvasDrawingSession ds, ICanvasResourceCreator rc,
-            List<(double lat, double lon)> points, Color color, float width)
-        {
-            if (points.Count < 2) return;
-
-            using (var pb = new CanvasPathBuilder(rc))
-            {
-                var (x0, y0) = _viewport.GeoToScreen(points[0].lat, points[0].lon);
-                pb.BeginFigure(x0, y0);
-                for (int i = 1; i < points.Count; i++)
-                {
-                    var (x, y) = _viewport.GeoToScreen(points[i].lat, points[i].lon);
-                    pb.AddLine(x, y);
-                }
-                pb.EndFigure(CanvasFigureLoop.Open);
-
-                using (var geo = CanvasGeometry.CreatePath(pb))
-                {
-                    ds.DrawGeometry(geo, color, width, _roundStroke);
-                }
-            }
-        }
 
         public void DrawGpsPosition(CanvasDrawingSession ds, double lat, double lon, double accuracy)
         {
@@ -320,7 +395,9 @@ namespace WinMaps.Rendering
         {
             public int Type;
             public string SubType;
-            public List<(double lat, double lon)> Points;
+            public float[] ScreenX;
+            public float[] ScreenY;
+            public bool IsClosed;
         }
 
         private class CachedPoi
@@ -363,8 +440,8 @@ namespace WinMaps.Rendering
                         y < -20 || y > _viewport.ScreenHeight + 20)
                         continue;
 
-                    // Draw dot
-                    Color dotColor = _theme.PoiDotColor;
+                    // Draw dot (color by POI type)
+                    Color dotColor = _theme.GetPoiColor(poi.Type);
                     ds.FillCircle(x, y, dotRadius + 1, _theme.PoiHaloColor);
                     ds.FillCircle(x, y, dotRadius, dotColor);
 

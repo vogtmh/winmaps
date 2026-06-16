@@ -34,7 +34,7 @@
                     FontSize="16"
                     Click="BtnGps_Click"
                     Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
-                <TextBlock Text="◎" FontSize="20" />
+                <TextBlock x:Name="GpsIcon" Text="◎" FontSize="20" />
             </Button>
         </StackPanel>
 

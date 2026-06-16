@@ -23,6 +23,14 @@ namespace WinMaps.Rendering
         public Color PoiDotColor;
         public Color PoiHaloColor;
         public Color PoiTextColor;
+        public Dictionary<string, Color> PoiColors;
+
+        public Color GetPoiColor(string type)
+        {
+            if (PoiColors != null && PoiColors.TryGetValue(type, out var c))
+                return c;
+            return PoiDotColor;
+        }
 
         public Color GetRoadColor(string subType)
         {
@@ -63,6 +71,14 @@ namespace WinMaps.Rendering
             PoiDotColor = Color.FromArgb(255, 180, 60, 60),
             PoiHaloColor = Colors.White,
             PoiTextColor = Color.FromArgb(255, 80, 40, 40),
+            PoiColors = new Dictionary<string, Color>
+            {
+                ["amenity"] = Color.FromArgb(255, 180, 60, 60),
+                ["shop"] = Color.FromArgb(255, 172, 121, 44),
+                ["tourism"] = Color.FromArgb(255, 0, 146, 115),
+                ["healthcare"] = Color.FromArgb(255, 200, 40, 40),
+                ["office"] = Color.FromArgb(255, 100, 100, 160),
+            },
             RoadColors = new Dictionary<string, Color>
             {
                 ["motorway"] = Color.FromArgb(255, 233, 144, 160),
@@ -122,6 +138,14 @@ namespace WinMaps.Rendering
             PoiDotColor = Color.FromArgb(255, 200, 120, 100),
             PoiHaloColor = Color.FromArgb(255, 28, 28, 32),
             PoiTextColor = Color.FromArgb(255, 210, 180, 170),
+            PoiColors = new Dictionary<string, Color>
+            {
+                ["amenity"] = Color.FromArgb(255, 200, 120, 100),
+                ["shop"] = Color.FromArgb(255, 220, 180, 80),
+                ["tourism"] = Color.FromArgb(255, 80, 200, 170),
+                ["healthcare"] = Color.FromArgb(255, 230, 90, 90),
+                ["office"] = Color.FromArgb(255, 140, 140, 200),
+            },
             RoadColors = new Dictionary<string, Color>
             {
                 ["motorway"] = Color.FromArgb(255, 140, 60, 80),
@@ -181,6 +205,14 @@ namespace WinMaps.Rendering
             PoiDotColor = Color.FromArgb(255, 214, 72, 49),
             PoiHaloColor = Colors.White,
             PoiTextColor = Color.FromArgb(255, 100, 50, 40),
+            PoiColors = new Dictionary<string, Color>
+            {
+                ["amenity"] = Color.FromArgb(255, 214, 72, 49),
+                ["shop"] = Color.FromArgb(255, 190, 145, 40),
+                ["tourism"] = Color.FromArgb(255, 16, 163, 127),
+                ["healthcare"] = Color.FromArgb(255, 220, 50, 50),
+                ["office"] = Color.FromArgb(255, 110, 110, 170),
+            },
             RoadColors = new Dictionary<string, Color>
             {
                 ["motorway"] = Color.FromArgb(255, 255, 183, 77),
@@ -239,6 +271,14 @@ namespace WinMaps.Rendering
             DefaultParkColor = Color.FromArgb(255, 10, 30, 20),
             PoiDotColor = Color.FromArgb(255, 255, 0, 200),
             PoiHaloColor = Color.FromArgb(255, 10, 10, 18),
+            PoiColors = new Dictionary<string, Color>
+            {
+                ["amenity"] = Color.FromArgb(255, 255, 0, 200),
+                ["shop"] = Color.FromArgb(255, 255, 220, 0),
+                ["tourism"] = Color.FromArgb(255, 0, 255, 180),
+                ["healthcare"] = Color.FromArgb(255, 255, 50, 50),
+                ["office"] = Color.FromArgb(255, 120, 100, 255),
+            },
             PoiTextColor = Color.FromArgb(255, 200, 100, 255),
             RoadColors = new Dictionary<string, Color>
             {
