@@ -1006,7 +1006,7 @@ namespace WinMaps
             Dictionary<string, (int total, int installed)> continentStatus = null;
             if (_worldMapLevel == "world")
             {
-                continentStatus = new Dictionary<string, (int, int)>();
+                continentStatus = new Dictionary<string, (int total, int installed)>();
                 foreach (var continent in _naturalEarthIndex.GetContinents())
                 {
                     int total = 0, installed = 0;
