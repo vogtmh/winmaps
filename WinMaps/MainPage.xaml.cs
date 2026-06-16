@@ -913,7 +913,7 @@ namespace WinMaps
             double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
             foreach (var c in countries)
             {
-                var filtered = GetFilteredGeometry(c) ?? c.Geometry;
+                var filtered = GetFilteredGeometry(c);
                 if (filtered == null) continue;
                 foreach (var ring in filtered)
                     foreach (var p in ring)
@@ -1086,7 +1086,9 @@ namespace WinMaps
                         fill = ChooseMapColor(0, 0);
                 }
 
-                DrawPolygonRings(ds, sender, project, GetFilteredGeometry(country) ?? country.Geometry, fill, stroke);
+                var geo = GetFilteredGeometry(country);
+                if (geo == null) continue;
+                DrawPolygonRings(ds, sender, project, geo, fill, stroke);
             }
         }
 
@@ -1200,11 +1202,28 @@ namespace WinMaps
         /// Returns the filtered geometry for a country at any map level.
         /// Always uses mainland filtering to exclude distant overseas territories
         /// while preserving transcontinental countries like Russia.
+        /// For Oceania, additionally drops rings in negative longitudes so the
+        /// view focuses on Australia / NZ / PNG rather than scattered Pacific islands.
         /// </summary>
         private List<List<(double Lat, double Lon)>> GetFilteredGeometry(NaturalEarthCountry country)
         {
             if (country.Geometry == null) return null;
-            return GetMainlandRings(country.Geometry);
+            var rings = GetMainlandRings(country.Geometry);
+            if (rings == null) return null;
+
+            // Oceania: keep only rings with positive-longitude centroids
+            if (country.Continent == "Oceania")
+            {
+                var pos = new List<List<(double Lat, double Lon)>>();
+                foreach (var ring in rings)
+                {
+                    double sumLon = 0;
+                    foreach (var p in ring) sumLon += p.Lon;
+                    if (sumLon / ring.Count >= 0) pos.Add(ring);
+                }
+                return pos.Count > 0 ? pos : null;
+            }
+            return rings;
         }
 
         /// <summary>
