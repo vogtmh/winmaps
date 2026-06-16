@@ -147,15 +147,16 @@ namespace WinMaps.Data
 
         /// <summary>
         /// Gets all ways whose bounding box intersects the given viewport.
+        /// Returns (id, type, subtype, latSpan, lonSpan).
         /// </summary>
-        public List<(long id, int type, string subType)> QueryWaysInBounds(
+        public List<(long id, int type, string subType, double latSpan, double lonSpan)> QueryWaysInBounds(
             double minLat, double maxLat, double minLon, double maxLon, int typeFilter = -1)
         {
-            var result = new List<(long, int, string)>();
+            var result = new List<(long, int, string, double, double)>();
 
             using (var cmd = _connection.CreateCommand())
             {
-                string sql = @"SELECT id, type, subtype 
+                string sql = @"SELECT id, type, subtype, (max_lat - min_lat), (max_lon - min_lon)
                                FROM ways
                                WHERE max_lat >= @minLat AND min_lat <= @maxLat
                                  AND max_lon >= @minLon AND min_lon <= @maxLon";
@@ -176,7 +177,8 @@ namespace WinMaps.Data
                     while (reader.Read())
                     {
                         result.Add((reader.GetInt64(0), reader.GetInt32(1),
-                            reader.IsDBNull(2) ? null : reader.GetString(2)));
+                            reader.IsDBNull(2) ? null : reader.GetString(2),
+                            reader.GetDouble(3), reader.GetDouble(4)));
                     }
                 }
             }

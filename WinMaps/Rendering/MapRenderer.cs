@@ -124,9 +124,9 @@ namespace WinMaps.Rendering
 
                 // Phase 2: Apply LOD filter and collect IDs for geometry fetch
                 var filtered = new List<(long id, int type, string subType)>();
-                foreach (var (id, type, subType) in wayMeta)
+                foreach (var (id, type, subType, latSpan, lonSpan) in wayMeta)
                 {
-                    if (!ShouldDrawAtZoom(type, subType, queryZoom))
+                    if (!ShouldDrawAtZoom(type, subType, queryZoom, latSpan, lonSpan))
                         continue;
 
                     filtered.Add((id, type, subType));
@@ -249,8 +249,25 @@ namespace WinMaps.Rendering
 
         // ---- LOD filtering ----
 
-        private bool ShouldDrawAtZoom(int type, string subType, double zoom)
+        private bool ShouldDrawAtZoom(int type, string subType, double zoom, double latSpan, double lonSpan)
         {
+            // For area features (parks, water), filter by size at low zoom
+            if (type == (int)Pbf.OsmElementType.Park || type == (int)Pbf.OsmElementType.Water)
+            {
+                // Minimum geographic span to be visible at each zoom level
+                // At Z8, only show features spanning > ~0.01° (~1km)
+                // At Z10, > ~0.003° (~300m), etc.
+                double minSpan;
+                if (zoom < 8) minSpan = 0.05;       // ~5km
+                else if (zoom < 10) minSpan = 0.01; // ~1km
+                else if (zoom < 12) minSpan = 0.003; // ~300m
+                else if (zoom < 14) minSpan = 0.001; // ~100m
+                else minSpan = 0;                    // show everything
+
+                if (latSpan < minSpan && lonSpan < minSpan)
+                    return false;
+            }
+
             if (type == (int)Pbf.OsmElementType.Road)
             {
                 if (zoom < 8)
