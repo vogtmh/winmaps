@@ -27,6 +27,7 @@ namespace WinMaps
         public string Id { get; set; }
         public string Name { get; set; }
         public string StatusText { get; set; }
+        public string SizeText { get; set; }
         public Visibility UseVisibility { get; set; }
     }
 
@@ -400,6 +401,7 @@ namespace WinMaps
         {
             var names = GetMapNames();
             var items = new List<DownloadedMapItem>();
+            long totalBytes = 0;
 
             foreach (var kv in names)
             {
@@ -407,17 +409,30 @@ namespace WinMaps
                 if (!File.Exists(dbPath)) continue;
 
                 bool isActive = kv.Key == _activeMapId;
+                long fileSize = new FileInfo(dbPath).Length;
+                totalBytes += fileSize;
+
                 items.Add(new DownloadedMapItem
                 {
                     Id = kv.Key,
                     Name = kv.Value,
                     StatusText = isActive ? "● Active" : "",
+                    SizeText = FormatFileSize(fileSize),
                     UseVisibility = isActive ? Visibility.Collapsed : Visibility.Visible
                 });
             }
 
             LvMyMaps.ItemsSource = items;
             TxtNoMaps.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            TxtTotalSize.Text = items.Count > 0 ? $"Total: {FormatFileSize(totalBytes)}" : "";
+        }
+
+        private static string FormatFileSize(long bytes)
+        {
+            if (bytes >= 1073741824L) return $"{bytes / 1073741824.0:F1} GB";
+            if (bytes >= 1048576L) return $"{bytes / 1048576.0:F1} MB";
+            if (bytes >= 1024L) return $"{bytes / 1024.0:F0} KB";
+            return $"{bytes} B";
         }
 
         private async void BtnUseMap_Click(object sender, RoutedEventArgs e)
