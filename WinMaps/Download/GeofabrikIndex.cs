@@ -15,6 +15,15 @@ namespace WinMaps.Download
         public string Name;
         public string ParentId; // null for continents
         public string PbfUrl;
+
+        // Populated by GeofabrikGeoIndex (index-v1.json); null when only nogeom index is loaded.
+        // Each element is one ring: list of (lat, lon) points.
+        // MultiPolygons are flattened to multiple rings.
+        public List<List<(double Lat, double Lon)>> Geometry;
+
+        // Bounding box from index-v1.json: [minLon, minLat, maxLon, maxLat]
+        public double BboxMinLon, BboxMinLat, BboxMaxLon, BboxMaxLat;
+        public bool HasBbox;
     }
 
     internal class GeofabrikIndex

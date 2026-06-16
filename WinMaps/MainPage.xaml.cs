@@ -77,7 +77,9 @@ namespace WinMaps
 
         // Map manager
         private GeofabrikIndex _geofabrikIndex;
+        private GeofabrikGeoIndex _geoIndex;
         private Stack<string> _browseStack; // parent IDs for back navigation
+        private Stack<string> _worldMapStack; // parent IDs for world map back navigation
 
         // Theme
         private MapTheme _currentTheme;
@@ -89,7 +91,9 @@ namespace WinMaps
             _downloadManager = new MapDownloadManager();
             _cts = new CancellationTokenSource();
             _geofabrikIndex = new GeofabrikIndex();
+            _geoIndex = new GeofabrikGeoIndex();
             _browseStack = new Stack<string>();
+            _worldMapStack = new Stack<string>();
             _currentTheme = LoadSavedTheme();
 
             this.Loaded += MainPage_Loaded;
@@ -196,6 +200,8 @@ namespace WinMaps
                     try
                     {
                         await _db.OpenAsync();
+                        if (!_db.CheckIntegrity())
+                            throw new InvalidOperationException("Integrity check failed.");
                         if (_db.HasData())
                         {
                             _renderer = new MapRenderer(_db, _viewport, _currentTheme);
@@ -217,6 +223,8 @@ namespace WinMaps
                     {
                         _db?.Dispose();
                         _db = null;
+                        // DB is corrupt or unreadable — remove it so startup doesn't crash next time
+                        DeleteAndUnregisterMap(_activeMapId);
                     }
                 }
             }
@@ -224,14 +232,20 @@ namespace WinMaps
             // No valid active map — check if any maps exist
             if (mapNames.Count > 0)
             {
-                // Try to use the first available map
+                // Try to use the first available map; skip and delete any that are corrupted
                 foreach (var kv in mapNames)
                 {
                     string dbPath = GetDbPathForMap(kv.Key);
-                    if (File.Exists(dbPath))
+                    if (!File.Exists(dbPath)) continue;
+                    try
                     {
                         await SwitchToMap(kv.Key);
-                        return;
+                        return; // success
+                    }
+                    catch
+                    {
+                        // SwitchToMap already called DeleteAndUnregisterMap on corruption
+                        mapNames = GetMapNames(); // refresh after removal
                     }
                 }
             }
@@ -602,7 +616,19 @@ namespace WinMaps
 
             string dbPath = GetDbPathForMap(mapId);
             _db = new MapDatabase(dbPath);
-            await _db.OpenAsync();
+            try
+            {
+                await _db.OpenAsync();
+                if (!_db.CheckIntegrity())
+                    throw new InvalidOperationException($"Map database for '{mapId}' failed integrity check.");
+            }
+            catch
+            {
+                _db?.Dispose();
+                _db = null;
+                DeleteAndUnregisterMap(mapId);
+                throw;
+            }
 
             _renderer = new MapRenderer(_db, _viewport, _currentTheme);
             SetActiveMapId(mapId);
@@ -619,6 +645,29 @@ namespace WinMaps
             _initialGpsCentered = false;
             StartGps();
             RedrawMap();
+        }
+
+        /// <summary>
+        /// Deletes DB files for a country map and removes it from all LocalSettings.
+        /// Safe to call on a DB that is already disposed/null.
+        /// </summary>
+        private void DeleteAndUnregisterMap(string countryKey)
+        {
+            try
+            {
+                string dbPath = GetDbPathForMap(countryKey);
+                if (File.Exists(dbPath)) File.Delete(dbPath);
+                if (File.Exists(dbPath + "-wal")) File.Delete(dbPath + "-wal");
+                if (File.Exists(dbPath + "-shm")) File.Delete(dbPath + "-shm");
+            }
+            catch { }
+            RemoveMapName(countryKey);
+            RemoveInstalledRegionsForCountry(countryKey);
+            if (_activeMapId == countryKey)
+            {
+                _activeMapId = null;
+                ApplicationData.Current.LocalSettings.Values.Remove("active_map_id");
+            }
         }
 
         private async void BtnDeleteMap_Click(object sender, RoutedEventArgs e)
@@ -697,8 +746,260 @@ namespace WinMaps
         {
             MyMapsView.Visibility = Visibility.Collapsed;
             BrowseView.Visibility = Visibility.Visible;
+            WorldMapView.Visibility = Visibility.Collapsed;
             _browseStack.Clear();
             ShowBrowseLevel(null); // show continents
+        }
+
+        // ---- World Map view ----
+
+        private void BtnWorldMap_Click(object sender, RoutedEventArgs e)
+        {
+            MyMapsView.Visibility = Visibility.Collapsed;
+            BrowseView.Visibility = Visibility.Collapsed;
+            WorldMapView.Visibility = Visibility.Visible;
+            _worldMapStack.Clear();
+            ShowWorldMapLevel(null); // start at world / continent level
+        }
+
+        private void BtnWorldMapBack_Click(object sender, RoutedEventArgs e)
+        {
+            if (_worldMapStack.Count > 0) _worldMapStack.Pop();
+            string parent = _worldMapStack.Count > 0 ? _worldMapStack.Peek() : null;
+            ShowWorldMapLevel(parent);
+        }
+
+        // The regions currently drawn on the canvas, in the same order as _worldMapRegions
+        private List<GeofabrikRegion> _worldMapRegions;
+        // Current viewport for the canvas (lat/lon bounds being displayed)
+        private (double MinLat, double MinLon, double MaxLat, double MaxLon) _worldMapViewport
+            = (-85, -180, 85, 180);
+
+        private async void ShowWorldMapLevel(string parentId)
+        {
+            // Ensure catalog is loaded
+            if (!_geofabrikIndex.IsLoaded)
+            {
+                TxtWorldMapLoading.Visibility = Visibility.Visible;
+                try { await _geofabrikIndex.LoadAsync(); }
+                catch { TxtWorldMapLoading.Text = "Failed to load catalog."; return; }
+            }
+
+            // Ensure geometry is loaded (lazy, once)
+            if (!_geoIndex.IsLoaded)
+            {
+                TxtWorldMapLoading.Visibility = Visibility.Visible;
+                TxtWorldMapLoading.Text = "Loading map data…";
+                await _geoIndex.LoadAsync(_geofabrikIndex);
+            }
+            TxtWorldMapLoading.Visibility = Visibility.Collapsed;
+
+            // Determine which regions to show at this level
+            var children = parentId == null
+                ? _geofabrikIndex.GetRoots()
+                : _geofabrikIndex.GetChildren(parentId);
+
+            // Filter to regions that have geometry; skip pure placeholders
+            _worldMapRegions = new List<GeofabrikRegion>();
+            foreach (var r in children)
+                if (r.Geometry != null && r.Geometry.Count > 0)
+                    _worldMapRegions.Add(r);
+
+            // Set viewport to bounding box of all visible regions
+            if (_worldMapRegions.Count > 0)
+            {
+                double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+                foreach (var r in _worldMapRegions)
+                {
+                    if (!r.HasBbox) continue;
+                    if (r.BboxMinLat < minLat) minLat = r.BboxMinLat;
+                    if (r.BboxMaxLat > maxLat) maxLat = r.BboxMaxLat;
+                    if (r.BboxMinLon < minLon) minLon = r.BboxMinLon;
+                    if (r.BboxMaxLon > maxLon) maxLon = r.BboxMaxLon;
+                }
+                _worldMapViewport = (minLat, minLon, maxLat, maxLon);
+            }
+
+            // Update header
+            if (parentId == null)
+            {
+                TxtWorldMapTitle.Text = "World";
+                BtnWorldMapBack.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                var pr = _geofabrikIndex.GetRegion(parentId);
+                TxtWorldMapTitle.Text = pr?.Name ?? parentId;
+                BtnWorldMapBack.Visibility = Visibility.Visible;
+            }
+
+            WorldMapCanvas.Invalidate();
+        }
+
+        private void WorldMapCanvas_Draw(
+            Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl sender,
+            Microsoft.Graphics.Canvas.UI.Xaml.CanvasDrawEventArgs args)
+        {
+            var ds = args.DrawingSession;
+            float W = (float)sender.ActualWidth;
+            float H = (float)sender.ActualHeight;
+
+            // Fill background
+            ds.FillRectangle(0, 0, W, H,
+                Windows.UI.Color.FromArgb(255, 30, 30, 40));
+
+            if (_worldMapRegions == null || _worldMapRegions.Count == 0) return;
+
+            var (minLat, minLon, maxLat, maxLon) = _worldMapViewport;
+            double latSpan = maxLat - minLat;
+            double lonSpan = maxLon - minLon;
+            if (latSpan <= 0 || lonSpan <= 0) return;
+
+            float padding = 16f;
+            float drawW = W - 2 * padding;
+            float drawH = H - 2 * padding;
+
+            // Simple equirectangular projection
+            Func<double, double, (float x, float y)> project = (lat, lon) =>
+            {
+                float x = padding + (float)((lon - minLon) / lonSpan * drawW);
+                float y = padding + (float)((maxLat - lat) / latSpan * drawH);
+                return (x, y);
+            };
+
+            var installedIds = GetInstalledRegionIds();
+
+            foreach (var region in _worldMapRegions)
+            {
+                if (region.Geometry == null) continue;
+
+                // Determine fill color based on download status
+                var leaves = _geofabrikIndex.GetLeaves(region.Id);
+                int total = leaves.Count;
+                int installed = 0;
+                foreach (var l in leaves)
+                    if (installedIds.Contains(l.Id)) installed++;
+
+                Windows.UI.Color fill;
+                if (total == 0 || installed == 0)
+                    fill = Windows.UI.Color.FromArgb(180, 70, 90, 120);   // grey-blue — none
+                else if (installed == total)
+                    fill = Windows.UI.Color.FromArgb(200, 60, 160, 80);   // green — complete
+                else
+                    fill = Windows.UI.Color.FromArgb(200, 200, 130, 40);  // orange — partial
+
+                var stroke = Windows.UI.Color.FromArgb(255, 200, 210, 230);
+
+                foreach (var ring in region.Geometry)
+                {
+                    if (ring.Count < 3) continue;
+
+                    using (var pb = new Microsoft.Graphics.Canvas.Geometry.CanvasPathBuilder(sender))
+                    {
+                        var first = project(ring[0].Lat, ring[0].Lon);
+                        pb.BeginFigure(first.x, first.y);
+                        for (int p = 1; p < ring.Count; p++)
+                        {
+                            var pt = project(ring[p].Lat, ring[p].Lon);
+                            pb.AddLine(pt.x, pt.y);
+                        }
+                        pb.EndFigure(Microsoft.Graphics.Canvas.Geometry.CanvasFigureLoop.Closed);
+
+                        using (var geo = Microsoft.Graphics.Canvas.Geometry.CanvasGeometry.CreatePath(pb))
+                        {
+                            ds.FillGeometry(geo, fill);
+                            ds.DrawGeometry(geo, stroke, 0.5f);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void WorldMapCanvas_PointerPressed(object sender,
+            Windows.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            if (_worldMapRegions == null || _worldMapRegions.Count == 0) return;
+
+            var pt = e.GetCurrentPoint(WorldMapCanvas).Position;
+            float W = (float)WorldMapCanvas.ActualWidth;
+            float H = (float)WorldMapCanvas.ActualHeight;
+
+            var (minLat, minLon, maxLat, maxLon) = _worldMapViewport;
+            double latSpan = maxLat - minLat;
+            double lonSpan = maxLon - minLon;
+            float padding = 16f;
+            float drawW = W - 2 * padding;
+            float drawH = H - 2 * padding;
+
+            // Unproject tap to lat/lon
+            double tapLon = minLon + ((pt.X - padding) / drawW) * lonSpan;
+            double tapLat = maxLat - ((pt.Y - padding) / drawH) * latSpan;
+
+            // Find hit region using bbox pre-filter then point-in-polygon
+            foreach (var region in _worldMapRegions)
+            {
+                if (!region.HasBbox) continue;
+                if (tapLon < region.BboxMinLon || tapLon > region.BboxMaxLon) continue;
+                if (tapLat < region.BboxMinLat || tapLat > region.BboxMaxLat) continue;
+                if (region.Geometry == null) continue;
+
+                if (PointInRegion(tapLat, tapLon, region))
+                {
+                    OnWorldMapRegionTapped(region);
+                    return;
+                }
+            }
+        }
+
+        private static bool PointInRegion(double lat, double lon, GeofabrikRegion region)
+        {
+            // Ray-casting on the outer ring of each polygon
+            foreach (var ring in region.Geometry)
+            {
+                if (PointInRing(lat, lon, ring)) return true;
+            }
+            return false;
+        }
+
+        private static bool PointInRing(double lat, double lon,
+            List<(double Lat, double Lon)> ring)
+        {
+            bool inside = false;
+            int n = ring.Count;
+            for (int i = 0, j = n - 1; i < n; j = i++)
+            {
+                double xi = ring[i].Lon, yi = ring[i].Lat;
+                double xj = ring[j].Lon, yj = ring[j].Lat;
+                if (((yi > lat) != (yj > lat)) &&
+                    (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi))
+                    inside = !inside;
+            }
+            return inside;
+        }
+
+        private void OnWorldMapRegionTapped(GeofabrikRegion region)
+        {
+            // If this region has children with geometry, drill down
+            bool hasGeoChildren = false;
+            foreach (var child in _geofabrikIndex.GetChildren(region.Id))
+                if (child.Geometry != null) { hasGeoChildren = true; break; }
+
+            if (hasGeoChildren)
+            {
+                _worldMapStack.Push(region.Id);
+                ShowWorldMapLevel(region.Id);
+            }
+            else
+            {
+                // Leaf — switch to the list browse view at this region's level so the
+                // user can download exactly what they want
+                MyMapsView.Visibility = Visibility.Collapsed;
+                WorldMapView.Visibility = Visibility.Collapsed;
+                BrowseView.Visibility = Visibility.Visible;
+                _browseStack.Clear();
+                _browseStack.Push(region.Id);
+                ShowBrowseLevel(region.Id);
+            }
         }
 
         private async void ShowBrowseLevel(string parentId)

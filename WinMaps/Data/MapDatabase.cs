@@ -28,7 +28,7 @@ namespace WinMaps.Data
                 _connection.Open();
 
                 Execute("PRAGMA journal_mode=WAL");
-                Execute("PRAGMA synchronous=OFF");
+                Execute("PRAGMA synchronous=NORMAL"); // safe with WAL; OFF risks corruption on OS crash
                 Execute("PRAGMA cache_size=-32000"); // 32MB cache
                 Execute("PRAGMA temp_store=MEMORY");
                 Execute("PRAGMA page_size=4096");
@@ -126,11 +126,29 @@ namespace WinMaps.Data
             _connection = new SqliteConnection($"Data Source={_dbPath}");
             _connection.Open();
             Execute("PRAGMA journal_mode=WAL");
-            Execute("PRAGMA synchronous=OFF");
+            Execute("PRAGMA synchronous=NORMAL"); // safe with WAL; OFF risks corruption on OS crash
             Execute("PRAGMA cache_size=-32000");
             Execute("PRAGMA temp_store=MEMORY");
             Execute("PRAGMA page_size=4096");
             Execute("PRAGMA mmap_size=67108864");
+        }
+
+        /// <summary>
+        /// Runs SQLite's quick_check PRAGMA. Returns true if the database is intact.
+        /// On a corrupted or partially-written WAL this returns false rather than throwing.
+        /// </summary>
+        public bool CheckIntegrity()
+        {
+            try
+            {
+                using (var cmd = _connection.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA quick_check";
+                    var result = cmd.ExecuteScalar() as string;
+                    return result == "ok";
+                }
+            }
+            catch { return false; }
         }
 
         public void CreateSpatialIndex()

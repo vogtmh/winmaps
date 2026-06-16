@@ -162,9 +162,58 @@
                     <TextBlock x:Name="TxtNoMaps" Text="No maps downloaded yet."
                                Opacity="0.6" HorizontalAlignment="Center"
                                Margin="0,0,0,8" Visibility="Collapsed" />
-                    <Button Content="＋ Add Map" HorizontalAlignment="Stretch"
-                            Click="BtnAddMap_Click" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Content="＋ Add Map"
+                                HorizontalAlignment="Stretch"
+                                Click="BtnAddMap_Click" />
+                        <Button Grid.Column="2" Content="🌍 Map View"
+                                HorizontalAlignment="Stretch"
+                                Click="BtnWorldMap_Click" />
+                    </Grid>
                 </StackPanel>
+            </Grid>
+
+            <!-- World Map view -->
+            <Grid x:Name="WorldMapView" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Header -->
+                <Grid Grid.Row="0" Padding="8,12,16,12"
+                      Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="BtnWorldMapBack" Content="←" FontSize="18"
+                            Background="Transparent" Margin="0,0,8,0"
+                            Visibility="Collapsed"
+                            Click="BtnWorldMapBack_Click" />
+                    <TextBlock x:Name="TxtWorldMapTitle" Text="World"
+                               Grid.Column="1" FontSize="16" FontWeight="SemiBold"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Button Content="✕" Grid.Column="2"
+                            FontSize="16" Background="Transparent"
+                            Click="BtnCloseManager_Click" />
+                </Grid>
+
+                <!-- Canvas for region polygons + loading indicator -->
+                <Grid Grid.Row="1">
+                    <canvas:CanvasControl x:Name="WorldMapCanvas"
+                                          Draw="WorldMapCanvas_Draw"
+                                          PointerPressed="WorldMapCanvas_PointerPressed" />
+                    <TextBlock x:Name="TxtWorldMapLoading" Text="Loading map data…"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Opacity="0.6" Visibility="Collapsed" />
+                </Grid>
             </Grid>
 
             <!-- Browse view -->
