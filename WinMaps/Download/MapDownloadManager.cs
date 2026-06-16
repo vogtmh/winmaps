@@ -21,6 +21,20 @@ namespace WinMaps.Download
         public string Url;
         public string FileName;
 
+        /// <summary>
+        /// Extracts the country key from the Geofabrik region ID.
+        /// "europe/germany/stuttgart-regbez" → "germany"
+        /// "europe/germany" → "germany"
+        /// </summary>
+        public string CountryKey
+        {
+            get
+            {
+                var parts = Id.Split('/');
+                return parts.Length >= 2 ? parts[1] : parts[0];
+            }
+        }
+
         public static MapRegion FromGeofabrik(GeofabrikRegion geo)
         {
             return new MapRegion
@@ -143,7 +157,8 @@ namespace WinMaps.Download
         }
 
         /// <summary>
-        /// Gets the path to the SQLite database for a given region.
+        /// Gets the path to the country-level SQLite database for a given region.
+        /// All sub-regions of the same country share one DB file (e.g. germany.osm.db).
         /// </summary>
         public async Task<string> GetDatabasePath(MapRegion region)
         {
@@ -151,7 +166,7 @@ namespace WinMaps.Download
             var mapsFolder = await localFolder.CreateFolderAsync("Maps",
                 CreationCollisionOption.OpenIfExists);
 
-            return Path.Combine(mapsFolder.Path, Path.ChangeExtension(region.FileName, ".db"));
+            return Path.Combine(mapsFolder.Path, region.CountryKey + ".osm.db");
         }
     }
 }

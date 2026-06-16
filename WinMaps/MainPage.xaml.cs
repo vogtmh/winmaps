@@ -244,44 +244,88 @@ namespace WinMaps
         private void MigrateUnregisteredMaps()
         {
             string mapsPath = GetMapsFolder();
-            var mapNames = GetMapNames();
+            var countryNames = GetMapNames();       // country key → display name
+            var installedIds = GetInstalledRegionIds();
 
-            foreach (string dbFile in Directory.GetFiles(mapsPath, "*.db"))
+            // Scan only the flat top-level Maps/ directory for country DBs (*.osm.db)
+            foreach (string dbFile in Directory.GetFiles(mapsPath, "*.osm.db"))
             {
-                // Extract map ID: "stuttgart-regbez.osm.db" → "stuttgart-regbez"
                 string fileName = Path.GetFileName(dbFile);
-                string mapId;
-                if (fileName.EndsWith(".osm.db", StringComparison.OrdinalIgnoreCase))
-                    mapId = fileName.Substring(0, fileName.Length - ".osm.db".Length);
-                else
-                    mapId = Path.GetFileNameWithoutExtension(fileName);
+                // "germany.osm.db" → "germany"
+                string countryKey = fileName.Substring(0, fileName.Length - ".osm.db".Length);
 
-                if (!mapNames.ContainsKey(mapId))
+                if (string.IsNullOrEmpty(countryKey)) continue;
+
+                if (!countryNames.ContainsKey(countryKey))
                 {
-                    string displayName = mapId
-                        .Replace("-", " ")
-                        .Replace("_", " ");
-                    // Capitalize first letter of each word
-                    var parts = displayName.Split(' ');
-                    for (int i = 0; i < parts.Length; i++)
-                    {
-                        if (parts[i].Length > 0)
-                            parts[i] = char.ToUpper(parts[i][0]) + parts[i].Substring(1);
-                    }
-                    displayName = string.Join(" ", parts);
+                    // Build display name from key: "north-america" → "North America"
+                    string displayName = string.Join(" ", countryKey.Split('-')
+                        .Select(w => w.Length > 0 ? char.ToUpper(w[0]) + w.Substring(1) : ""));
+                    SaveMapName(countryKey, displayName);
 
-                    SaveMapName(mapId, displayName);
-
-                    // If no active map is set, use this one
                     if (GetActiveMapId() == null)
+                        SetActiveMapId(countryKey);
+                }
+
+                // Restore installed_regions from this DB's regions table
+                try
+                {
+                    var tempDb = new MapDatabase(dbFile);
+                    tempDb.OpenSync();
+                    var regions = tempDb.GetRegions();
+                    tempDb.Dispose();
+
+                    foreach (var (id, _) in regions)
                     {
-                        SetActiveMapId(mapId);
+                        if (!installedIds.Contains(id))
+                            installedIds.Add(id);
                     }
                 }
+                catch { }
             }
+
+            SaveInstalledRegionIds(installedIds);
         }
 
         // ---- Map file helpers ----
+
+        /// <summary>
+        /// Extracts the country key from a Geofabrik region ID.
+        /// "europe/germany/stuttgart-regbez" → "germany"
+        /// "europe/germany" → "germany"
+        /// </summary>
+        private static string GetCountryKey(string regionId)
+        {
+            var parts = regionId.Split('/');
+            return parts.Length >= 2 ? parts[1] : parts[0];
+        }
+
+        /// <summary>
+        /// Derives a display name for a country key.
+        /// Tries the Geofabrik index first; falls back to title-casing the key.
+        /// </summary>
+        private string GetCountryDisplayName(string countryKey, string regionId)
+        {
+            // Build the expected country geo-ID: "europe" + "/" + "germany" = "europe/germany"
+            if (!string.IsNullOrEmpty(regionId))
+            {
+                var parts = regionId.Split('/');
+                if (parts.Length >= 2)
+                {
+                    string countryGeoId = parts[0] + "/" + countryKey;
+                    var geo = _geofabrikIndex.GetRegion(countryGeoId);
+                    if (geo != null) return geo.Name;
+                    // If the region itself IS the country node (2 parts)
+                    geo = _geofabrikIndex.GetRegion(regionId);
+                    if (geo != null && geo.ParentId != null &&
+                        _geofabrikIndex.GetRegion(geo.ParentId)?.ParentId == null)
+                        return geo.Name;
+                }
+            }
+            // Fallback: "north-america" → "North America"
+            return string.Join(" ", countryKey.Split('-')
+                .Select(w => w.Length > 0 ? char.ToUpper(w[0]) + w.Substring(1) : ""));
+        }
 
         private string GetMapsFolder()
         {
@@ -292,14 +336,15 @@ namespace WinMaps
             return mapsPath;
         }
 
-        private string GetDbPathForMap(string mapId)
+        // Country DB lives at Maps/{countryKey}.osm.db (flat, not nested)
+        private string GetDbPathForMap(string countryKey)
         {
-            return Path.Combine(GetMapsFolder(), mapId + ".osm.db");
+            return Path.Combine(GetMapsFolder(), countryKey + ".osm.db");
         }
 
-        private string GetPbfPathForMap(string mapId)
+        private string GetPbfPathForMap(string regionId)
         {
-            return Path.Combine(GetMapsFolder(), mapId + ".osm.pbf");
+            return Path.Combine(GetMapsFolder(), regionId + ".osm.pbf");
         }
 
         // ---- Map metadata in LocalSettings ----
@@ -318,6 +363,7 @@ namespace WinMaps
             ApplicationData.Current.LocalSettings.Values["active_map_id"] = id;
         }
 
+        // map_names: country key → country display name (e.g. "germany" → "Germany")
         private Dictionary<string, string> GetMapNames()
         {
             var result = new Dictionary<string, string>();
@@ -365,6 +411,50 @@ namespace WinMaps
             ApplicationData.Current.LocalSettings.Values["map_names"] = obj.Stringify();
         }
 
+        // installed_regions: flat JSON array of all installed Geofabrik region IDs
+        private HashSet<string> GetInstalledRegionIds()
+        {
+            var result = new HashSet<string>();
+            var settings = ApplicationData.Current.LocalSettings;
+            if (settings.Values.ContainsKey("installed_regions"))
+            {
+                string json = settings.Values["installed_regions"] as string;
+                if (!string.IsNullOrEmpty(json))
+                {
+                    try
+                    {
+                        var arr = Windows.Data.Json.JsonArray.Parse(json);
+                        foreach (var v in arr)
+                            result.Add(v.GetString());
+                    }
+                    catch { }
+                }
+            }
+            return result;
+        }
+
+        private void SaveInstalledRegionIds(HashSet<string> ids)
+        {
+            var arr = new Windows.Data.Json.JsonArray();
+            foreach (var id in ids)
+                arr.Add(Windows.Data.Json.JsonValue.CreateStringValue(id));
+            ApplicationData.Current.LocalSettings.Values["installed_regions"] = arr.Stringify();
+        }
+
+        private void AddInstalledRegion(string regionId)
+        {
+            var ids = GetInstalledRegionIds();
+            ids.Add(regionId);
+            SaveInstalledRegionIds(ids);
+        }
+
+        private void RemoveInstalledRegionsForCountry(string countryKey)
+        {
+            var ids = GetInstalledRegionIds();
+            ids.RemoveWhere(id => GetCountryKey(id) == countryKey);
+            SaveInstalledRegionIds(ids);
+        }
+
         // ---- Map Manager UI ----
 
         private void BtnMapManager_Click(object sender, RoutedEventArgs e)
@@ -399,24 +489,36 @@ namespace WinMaps
 
         private void RefreshMyMapsList()
         {
-            var names = GetMapNames();
+            var names = GetMapNames();           // country key → country display name
+            var installedIds = GetInstalledRegionIds();
             var items = new List<DownloadedMapItem>();
             long totalBytes = 0;
 
             foreach (var kv in names)
             {
-                string dbPath = GetDbPathForMap(kv.Key);
+                string countryKey = kv.Key;
+                string dbPath = GetDbPathForMap(countryKey);
                 if (!File.Exists(dbPath)) continue;
 
-                bool isActive = kv.Key == _activeMapId;
+                bool isActive = countryKey == _activeMapId;
                 long fileSize = new FileInfo(dbPath).Length;
                 totalBytes += fileSize;
 
+                // List which regions are installed in this country DB
+                var countryRegions = installedIds
+                    .Where(id => GetCountryKey(id) == countryKey)
+                    .ToList();
+                string regionsText = countryRegions.Count > 0
+                    ? string.Join(", ", countryRegions.Select(id =>
+                        id.Split('/').LastOrDefault() ?? id))
+                    : "";
+
                 items.Add(new DownloadedMapItem
                 {
-                    Id = kv.Key,
+                    Id = countryKey,
                     Name = kv.Value,
-                    StatusText = isActive ? "● Active" : "",
+                    StatusText = (isActive ? "\u25cf Active" : "") +
+                                 (regionsText.Length > 0 ? (isActive ? " \u2014 " : "") + regionsText : ""),
                     SizeText = FormatFileSize(fileSize),
                     UseVisibility = isActive ? Visibility.Collapsed : Visibility.Visible
                 });
@@ -501,7 +603,7 @@ namespace WinMaps
                 ApplicationData.Current.LocalSettings.Values.Remove("active_map_id");
             }
 
-            // Delete files
+            // Delete files — deletes entire country DB (all regions for this country)
             await Task.Run(() =>
             {
                 try
@@ -510,17 +612,13 @@ namespace WinMaps
                     if (File.Exists(dbPath)) File.Delete(dbPath);
                     if (File.Exists(dbPath + "-wal")) File.Delete(dbPath + "-wal");
                     if (File.Exists(dbPath + "-shm")) File.Delete(dbPath + "-shm");
-
-                    string pbfPath = GetPbfPathForMap(mapId);
-                    if (File.Exists(pbfPath)) File.Delete(pbfPath);
-
-                    string partialPath = pbfPath + ".partial";
-                    if (File.Exists(partialPath)) File.Delete(partialPath);
+                    // Note: per-region PBF files (if any) are left; they live in nested sub-paths
                 }
                 catch { }
             });
 
             RemoveMapName(mapId);
+            RemoveInstalledRegionsForCountry(mapId);
             RefreshMyMapsList();
 
             // If no maps left, switch to browse
@@ -594,14 +692,17 @@ namespace WinMaps
                 ? _geofabrikIndex.GetRoots()
                 : _geofabrikIndex.GetChildren(parentId);
 
-            var downloadedNames = GetMapNames();
+            var downloadedNames = GetMapNames();   // country key → country name
+            var installedIds = GetInstalledRegionIds();
             var items = new List<BrowseRegionItem>();
 
             foreach (var region in children)
             {
                 bool isContinent = _geofabrikIndex.IsContinent(region.Id);
                 bool hasChildren = _geofabrikIndex.HasChildren(region.Id);
-                bool alreadyDownloaded = downloadedNames.ContainsKey(region.Id);
+                // Installed if this exact region or its country is recorded
+                bool alreadyDownloaded = installedIds.Contains(region.Id) ||
+                    downloadedNames.ContainsKey(GetCountryKey(region.Id));
 
                 items.Add(new BrowseRegionItem
                 {
@@ -733,12 +834,16 @@ namespace WinMaps
 
                 var importer = new MapImporter();
                 importer.OnProgress += OnImportProgress;
-                await importer.ImportAsync(pbfPath, _db, _cts.Token);
+                await importer.ImportAsync(pbfPath, _db, _cts.Token,
+                    _selectedRegion.Id, _selectedRegion.Name);
                 importer.OnProgress -= OnImportProgress;
 
-                // Register this map
-                SaveMapName(_selectedRegion.Id, _selectedRegion.Name);
-                SetActiveMapId(_selectedRegion.Id);
+                // Register at country level — all sub-regions share one country DB
+                string countryKey = _selectedRegion.CountryKey;
+                string countryDisplayName = GetCountryDisplayName(countryKey, _selectedRegion.Id);
+                SaveMapName(countryKey, countryDisplayName);
+                SetActiveMapId(countryKey);
+                AddInstalledRegion(_selectedRegion.Id);
 
                 _renderer = new MapRenderer(_db, _viewport, _currentTheme);
 
@@ -798,6 +903,10 @@ namespace WinMaps
 
         private async Task CleanupPartialData()
         {
+            // Do NOT delete the country DB — it may already contain other successfully imported regions.
+            // The incomplete region was never recorded in the regions table (InsertRegion is called only
+            // at the end of a successful import), so it simply doesn't appear as installed.
+            // Partially committed ways in the DB are harmless: INSERT OR IGNORE skips them on re-import.
             _db?.Dispose();
             _db = null;
 
@@ -811,16 +920,14 @@ namespace WinMaps
                     var localFolder = ApplicationData.Current.LocalFolder;
                     var mapsFolder = await localFolder.GetFolderAsync("Maps");
 
+                    // Delete the downloaded PBF and its .partial temp file
                     string partialPath = Path.Combine(mapsFolder.Path, region.FileName + ".partial");
                     if (File.Exists(partialPath)) File.Delete(partialPath);
 
                     string pbfPath = Path.Combine(mapsFolder.Path, region.FileName);
                     if (File.Exists(pbfPath)) File.Delete(pbfPath);
 
-                    string dbPath = Path.Combine(mapsFolder.Path, Path.ChangeExtension(region.FileName, ".db"));
-                    if (File.Exists(dbPath)) File.Delete(dbPath);
-                    if (File.Exists(dbPath + "-wal")) File.Delete(dbPath + "-wal");
-                    if (File.Exists(dbPath + "-shm")) File.Delete(dbPath + "-shm");
+                    // Country DB is intentionally preserved
                 }
                 catch { }
             });

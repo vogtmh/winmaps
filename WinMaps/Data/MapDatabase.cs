@@ -65,6 +65,64 @@ namespace WinMaps.Data
                     lat REAL NOT NULL,
                     lon REAL NOT NULL
                 )");
+
+            // Tracks which Geofabrik regions have been imported into this country DB.
+            // Deletion is always at the country-file level, so no per-region foreign keys needed.
+            Execute(@"
+                CREATE TABLE IF NOT EXISTS regions (
+                    id          TEXT PRIMARY KEY,
+                    name        TEXT NOT NULL,
+                    import_date TEXT NOT NULL
+                )");
+        }
+
+        /// <summary>Returns true if the given Geofabrik region ID is already recorded in this DB.</summary>
+        public bool HasRegion(string regionId)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM regions WHERE id = @id";
+            cmd.Parameters.AddWithValue("@id", regionId);
+            return (long)cmd.ExecuteScalar() > 0;
+        }
+
+        /// <summary>Records a successfully-imported region in the regions table.</summary>
+        public void InsertRegion(string regionId, string name)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "INSERT OR REPLACE INTO regions(id, name, import_date) VALUES(@id, @name, @date)";
+            cmd.Parameters.AddWithValue("@id", regionId);
+            cmd.Parameters.AddWithValue("@name", name);
+            cmd.Parameters.AddWithValue("@date", DateTime.UtcNow.ToString("O"));
+            cmd.ExecuteNonQuery();
+        }
+
+        /// <summary>Returns all regions recorded in this country DB, sorted by name.</summary>
+        public List<(string id, string name)> GetRegions()
+        {
+            var result = new List<(string, string)>();
+            try
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = "SELECT id, name FROM regions ORDER BY name";
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                    result.Add((reader.GetString(0), reader.GetString(1)));
+            }
+            catch { /* regions table may not exist in old DBs */ }
+            return result;
+        }
+
+        /// <summary>Synchronous open — for use during migration (avoids async deadlocks).</summary>
+        public void OpenSync()
+        {
+            _connection = new SqliteConnection($"Data Source={_dbPath}");
+            _connection.Open();
+            Execute("PRAGMA journal_mode=WAL");
+            Execute("PRAGMA synchronous=OFF");
+            Execute("PRAGMA cache_size=-32000");
+            Execute("PRAGMA temp_store=MEMORY");
+            Execute("PRAGMA page_size=4096");
+            Execute("PRAGMA mmap_size=67108864");
         }
 
         public void CreateSpatialIndex()

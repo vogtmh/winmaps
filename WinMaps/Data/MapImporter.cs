@@ -31,12 +31,12 @@ namespace WinMaps.Data
 
         public event Action<ImportProgress> OnProgress;
 
-        public async Task ImportAsync(string pbfPath, MapDatabase db, CancellationToken ct)
+        public async Task ImportAsync(string pbfPath, MapDatabase db, CancellationToken ct, string regionId, string regionName)
         {
-            await Task.Run(() => Import(pbfPath, db, ct), ct);
+            await Task.Run(() => Import(pbfPath, db, ct, regionId, regionName), ct);
         }
 
-        private void Import(string pbfPath, MapDatabase db, CancellationToken ct)
+        private void Import(string pbfPath, MapDatabase db, CancellationToken ct, string regionId, string regionName)
         {
             db.CreateSchema();
 
@@ -196,6 +196,9 @@ namespace WinMaps.Data
             db.SetMetadata("node_count", nodeCount.ToString());
             db.SetMetadata("way_count", wayCount.ToString());
             db.SetMetadata("source", pbfPath);
+
+            // Record this region as successfully imported into the country DB
+            db.InsertRegion(regionId, regionName);
 
             ReportProgress(ImportPhase.Done, 100, nodeCount, wayCount);
         }
