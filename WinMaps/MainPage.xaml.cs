@@ -824,7 +824,11 @@ namespace WinMaps
                     if (r.BboxMinLon < minLon) minLon = r.BboxMinLon;
                     if (r.BboxMaxLon > maxLon) maxLon = r.BboxMaxLon;
                 }
-                _worldMapViewport = (minLat, minLon, maxLat, maxLon);
+                // Fall back to world extent if no bbox data was available
+                if (maxLat > minLat && maxLon > minLon)
+                    _worldMapViewport = (minLat, minLon, maxLat, maxLon);
+                else
+                    _worldMapViewport = (-85, -180, 85, 180);
             }
 
             // Update header

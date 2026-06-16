@@ -53,11 +53,12 @@ namespace WinMaps.Download
                     var region = index.GetRegion(id);
                     if (region == null) continue; // not in catalog (no PBF)
 
-                    // Parse bounding box: [minLon, minLat, maxLon, maxLat]
-                    if (props.ContainsKey("bbox") &&
-                        props.GetNamedValue("bbox").ValueType == JsonValueType.Array)
+                    // Parse bounding box: standard GeoJSON puts bbox at Feature level,
+                    // not inside properties. [minLon, minLat, maxLon, maxLat]
+                    if (feature.ContainsKey("bbox") &&
+                        feature.GetNamedValue("bbox").ValueType == JsonValueType.Array)
                     {
-                        var bbox = props.GetNamedArray("bbox");
+                        var bbox = feature.GetNamedArray("bbox");
                         if (bbox.Count >= 4)
                         {
                             region.BboxMinLon = bbox.GetNumberAt(0);
