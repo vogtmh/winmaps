@@ -100,6 +100,8 @@ namespace WinMaps.Rendering
             }
         }
 
+        private const int MaxWaysPerBatch = 500;
+
         private void DrawBatchedAreas(CanvasDrawingSession ds, ICanvasResourceCreator rc,
             int typeFilter, Func<CachedWay, Color> colorFunc, Func<CachedWay, bool> filter = null)
         {
@@ -122,18 +124,25 @@ namespace WinMaps.Rendering
             foreach (var kvp in batches)
             {
                 Color color = UintToColor(kvp.Key);
-                using (var pb = new CanvasPathBuilder(rc))
+                var allWays = kvp.Value;
+
+                for (int chunk = 0; chunk < allWays.Count; chunk += MaxWaysPerBatch)
                 {
-                    foreach (var way in kvp.Value)
+                    int end = Math.Min(chunk + MaxWaysPerBatch, allWays.Count);
+                    using (var pb = new CanvasPathBuilder(rc))
                     {
-                        pb.BeginFigure(way.MercX[0] + _frameOffsetX, way.MercY[0] + _frameOffsetY);
-                        for (int i = 1; i < way.MercX.Length; i++)
-                            pb.AddLine(way.MercX[i] + _frameOffsetX, way.MercY[i] + _frameOffsetY);
-                        pb.EndFigure(way.IsClosed ? CanvasFigureLoop.Closed : CanvasFigureLoop.Open);
-                    }
-                    using (var geo = CanvasGeometry.CreatePath(pb))
-                    {
-                        ds.FillGeometry(geo, color);
+                        for (int w = chunk; w < end; w++)
+                        {
+                            var way = allWays[w];
+                            pb.BeginFigure(way.MercX[0] + _frameOffsetX, way.MercY[0] + _frameOffsetY);
+                            for (int i = 1; i < way.MercX.Length; i++)
+                                pb.AddLine(way.MercX[i] + _frameOffsetX, way.MercY[i] + _frameOffsetY);
+                            pb.EndFigure(way.IsClosed ? CanvasFigureLoop.Closed : CanvasFigureLoop.Open);
+                        }
+                        using (var geo = CanvasGeometry.CreatePath(pb))
+                        {
+                            ds.FillGeometry(geo, color);
+                        }
                     }
                 }
             }
@@ -168,18 +177,24 @@ namespace WinMaps.Rendering
             foreach (var kvp in batches)
             {
                 var (color, width, ways) = kvp.Value;
-                using (var pb = new CanvasPathBuilder(rc))
+
+                for (int chunk = 0; chunk < ways.Count; chunk += MaxWaysPerBatch)
                 {
-                    foreach (var way in ways)
+                    int end = Math.Min(chunk + MaxWaysPerBatch, ways.Count);
+                    using (var pb = new CanvasPathBuilder(rc))
                     {
-                        pb.BeginFigure(way.MercX[0] + _frameOffsetX, way.MercY[0] + _frameOffsetY);
-                        for (int i = 1; i < way.MercX.Length; i++)
-                            pb.AddLine(way.MercX[i] + _frameOffsetX, way.MercY[i] + _frameOffsetY);
-                        pb.EndFigure(CanvasFigureLoop.Open);
-                    }
-                    using (var geo = CanvasGeometry.CreatePath(pb))
-                    {
-                        ds.DrawGeometry(geo, color, width, _roundStroke);
+                        for (int w = chunk; w < end; w++)
+                        {
+                            var way = ways[w];
+                            pb.BeginFigure(way.MercX[0] + _frameOffsetX, way.MercY[0] + _frameOffsetY);
+                            for (int i = 1; i < way.MercX.Length; i++)
+                                pb.AddLine(way.MercX[i] + _frameOffsetX, way.MercY[i] + _frameOffsetY);
+                            pb.EndFigure(CanvasFigureLoop.Open);
+                        }
+                        using (var geo = CanvasGeometry.CreatePath(pb))
+                        {
+                            ds.DrawGeometry(geo, color, width, _roundStroke);
+                        }
                     }
                 }
             }
