@@ -4,6 +4,8 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using WinMaps.Pbf;
+// Note: Array.BinarySearch used instead of HashSet/Dictionary for node lookup
+// to avoid GC overhead of ~22 bytes per HashSet slot and ~32 bytes per Dictionary entry.
 
 namespace WinMaps.Data
 {
@@ -41,11 +43,11 @@ namespace WinMaps.Data
             long fileSize = new FileInfo(pbfPath).Length;
 
             // ---- Pass 1: Scan ways to collect referenced node IDs ----
-            // Only decodes way node-refs (skips node lat/lon), so it's fast and lean.
-            // The resulting HashSet is much smaller than buffering all nodes.
+            // Collect raw refs into a List<long>, then sort+dedup into a plain array.
+            // A sorted long[] uses ~8 bytes/entry vs HashSet<long>'s ~22 bytes/entry.
             ReportProgress(ImportPhase.Nodes, 0, 0, 0);
 
-            var referencedNodeIds = new HashSet<long>();
+            var nodeIdList = new List<long>();
 
             using (var stream = File.OpenRead(pbfPath))
             {
@@ -54,20 +56,29 @@ namespace WinMaps.Data
                 parser.OnWay += way =>
                 {
                     for (int i = 0; i < way.NodeRefs.Length; i++)
-                        referencedNodeIds.Add(way.NodeRefs[i]);
+                        nodeIdList.Add(way.NodeRefs[i]);
                 };
 
                 parser.OnProgress += (pos, total) =>
                 {
-                    double pct = total > 0 ? (double)pos / total * 50.0 : 0; // 0-50%
+                    double pct = total > 0 ? (double)pos / total * 50.0 : 0;
                     ReportProgress(ImportPhase.Nodes, pct, 0, 0);
                 };
 
                 parser.Parse(stream, fileSize, ct);
             }
 
-            // ---- Pass 2: Buffer only referenced nodes, resolve ways inline ----
-            var nodeBuffer = new Dictionary<long, (double lat, double lon)>(referencedNodeIds.Count);
+            // Sort and deduplicate into a compact array — O(n log n) but runs once
+            nodeIdList.Sort();
+            long[] nodeIds = DeduplicateSorted(nodeIdList);
+            nodeIdList = null; // allow GC to reclaim the raw list
+
+            // Two parallel coordinate arrays indexed by position in nodeIds[].
+            // No pointer overhead — GC scans them in O(1).
+            double[] latBuf = new double[nodeIds.Length];
+            double[] lonBuf = new double[nodeIds.Length];
+
+            // ---- Pass 2: Fill coordinate arrays, resolve ways inline ----
             long nodeCount = 0;
             long wayCount = 0;
             int batchCount = 0;
@@ -83,33 +94,37 @@ namespace WinMaps.Data
 
                     parser.OnNode += node =>
                     {
-                        if (referencedNodeIds.Contains(node.Id))
+                        int idx = Array.BinarySearch(nodeIds, node.Id);
+                        if (idx >= 0)
                         {
-                            nodeBuffer[node.Id] = (node.Lat, node.Lon);
+                            latBuf[idx] = node.Lat;
+                            lonBuf[idx] = node.Lon;
                         }
                         nodeCount++;
                     };
 
                     parser.OnWay += way =>
                     {
-                        // Resolve node refs to coordinates
+                        // Resolve node refs via binary search into sorted nodeIds[]
                         var points = new List<(double lat, double lon)>(way.NodeRefs.Length);
                         double minLat = double.MaxValue, maxLat = double.MinValue;
                         double minLon = double.MaxValue, maxLon = double.MinValue;
 
                         for (int i = 0; i < way.NodeRefs.Length; i++)
                         {
-                            if (nodeBuffer.TryGetValue(way.NodeRefs[i], out var coord))
+                            int idx = Array.BinarySearch(nodeIds, way.NodeRefs[i]);
+                            if (idx >= 0)
                             {
-                                points.Add(coord);
-                                if (coord.lat < minLat) minLat = coord.lat;
-                                if (coord.lat > maxLat) maxLat = coord.lat;
-                                if (coord.lon < minLon) minLon = coord.lon;
-                                if (coord.lon > maxLon) maxLon = coord.lon;
+                                double lat = latBuf[idx];
+                                double lon = lonBuf[idx];
+                                points.Add((lat, lon));
+                                if (lat < minLat) minLat = lat;
+                                if (lat > maxLat) maxLat = lat;
+                                if (lon < minLon) minLon = lon;
+                                if (lon > maxLon) maxLon = lon;
                             }
                         }
 
-                        // Need at least 2 points for a renderable way
                         if (points.Count < 2)
                             return;
 
@@ -167,10 +182,11 @@ namespace WinMaps.Data
                 db.DisposeInsertStatement();
             }
 
-            // Free memory
-            referencedNodeIds.Clear();
-            nodeBuffer.Clear();
-            nodeBuffer = null;
+            // Free memory before indexing
+            nodeIds = null;
+            latBuf = null;
+            lonBuf = null;
+            GC.Collect();
 
             // Build spatial index
             ReportProgress(ImportPhase.BuildingIndex, 50, nodeCount, wayCount);
@@ -182,6 +198,28 @@ namespace WinMaps.Data
             db.SetMetadata("source", pbfPath);
 
             ReportProgress(ImportPhase.Done, 100, nodeCount, wayCount);
+        }
+
+        /// <summary>
+        /// Deduplicates a pre-sorted List&lt;long&gt; into a compact long[] with no allocator overhead.
+        /// </summary>
+        private static long[] DeduplicateSorted(List<long> sorted)
+        {
+            if (sorted.Count == 0) return Array.Empty<long>();
+
+            // Count unique values first
+            int unique = 1;
+            for (int i = 1; i < sorted.Count; i++)
+                if (sorted[i] != sorted[i - 1]) unique++;
+
+            long[] result = new long[unique];
+            result[0] = sorted[0];
+            int w = 1;
+            for (int i = 1; i < sorted.Count; i++)
+                if (sorted[i] != sorted[i - 1])
+                    result[w++] = sorted[i];
+
+            return result;
         }
 
         private void ReportProgress(ImportPhase phase, double percent, long nodes, long ways)
