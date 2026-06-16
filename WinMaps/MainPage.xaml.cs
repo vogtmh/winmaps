@@ -29,21 +29,12 @@ namespace WinMaps
     }
 
     // View model for Browse list
-    internal class BrowseRegionItem : System.ComponentModel.INotifyPropertyChanged
+    internal class BrowseRegionItem
     {
         public string Id { get; set; }
         public string Name { get; set; }
         public Visibility DownloadVisibility { get; set; }
         public Visibility DrillVisibility { get; set; }
-
-        private string _sizeText = "";
-        public string SizeText
-        {
-            get => _sizeText;
-            set { _sizeText = value; PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(SizeText))); }
-        }
-
-        public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
     }
 
     // View model for Theme list
@@ -592,50 +583,6 @@ namespace WinMaps
             }
 
             LvBrowse.ItemsSource = items;
-
-            // Fetch sizes asynchronously
-            FetchRegionSizes(items, children);
-        }
-
-        private async void FetchRegionSizes(List<BrowseRegionItem> items, List<GeofabrikRegion> regions)
-        {
-            using (var client = new System.Net.Http.HttpClient())
-            {
-                client.Timeout = TimeSpan.FromSeconds(10);
-
-                foreach (var region in regions)
-                {
-                    var item = items.Find(i => i.Id == region.Id);
-                    if (item == null || item.DownloadVisibility == Visibility.Collapsed || string.IsNullOrEmpty(region.PbfUrl))
-                        continue;
-
-                    try
-                    {
-                        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Head, new Uri(region.PbfUrl));
-                        var response = await client.SendAsync(request);
-                        if (response.Content.Headers.ContentLength.HasValue)
-                        {
-                            long bytes = response.Content.Headers.ContentLength.Value;
-                            await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
-                            {
-                                item.SizeText = FormatFileSize(bytes);
-                            });
-                        }
-                    }
-                    catch { }
-                }
-            }
-        }
-
-        private static string FormatFileSize(long bytes)
-        {
-            if (bytes >= 1024L * 1024 * 1024)
-                return $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
-            if (bytes >= 1024L * 1024)
-                return $"{bytes / (1024.0 * 1024):F0} MB";
-            if (bytes >= 1024L)
-                return $"{bytes / 1024.0:F0} KB";
-            return $"{bytes} B";
         }
 
         private void BtnDrillInto_Click(object sender, RoutedEventArgs e)
