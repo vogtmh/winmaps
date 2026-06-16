@@ -81,6 +81,10 @@
                 <TextBlock x:Name="TxtOverlayStatus" Text="No map data found."
                            TextWrapping="Wrap" HorizontalAlignment="Center"
                            Margin="0,0,0,16" />
+                <!-- Batch segment bar: shown only during multi-region downloads -->
+                <StackPanel x:Name="BatchSegmentBar" Orientation="Horizontal"
+                            HorizontalAlignment="Center" Visibility="Collapsed"
+                            Margin="0,0,0,12" />
                 <ProgressBar x:Name="ProgressOverlay" Minimum="0" Maximum="100"
                              Value="0" Margin="0,0,0,8" />
                 <TextBlock x:Name="TxtOverlayDetail" Text=""

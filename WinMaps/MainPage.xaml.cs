@@ -944,18 +944,22 @@ namespace WinMaps
             int done = 0;
             string lastCountryKey = regions.Count > 0 ? regions[0].CountryKey : null;
 
+            InitBatchSegmentBar(total);
+            UpdateBatchSegments(0, 0);
+
             try
             {
                 foreach (var region in regions)
                 {
                     _selectedRegion = region; // keep in sync so CleanupPartialData works
-                    TxtOverlayTitle.Text = $"Region {done + 1} of {total}";
+                    UpdateBatchSegments(done, done);
                     lastCountryKey = region.CountryKey;
 
                     await DownloadAndImportRegionAsync(region, _cts.Token);
                     done++;
                 }
 
+                UpdateBatchSegments(done, -1); // all green
                 if (lastCountryKey != null)
                     FinalizeMapAfterImport(lastCountryKey);
             }
@@ -988,9 +992,55 @@ namespace WinMaps
             }
             finally
             {
+                BatchSegmentBar.Visibility = Visibility.Collapsed;
+                BatchSegmentBar.Children.Clear();
+                _batchSegmentBorders = null;
                 BtnCancel.Visibility = Visibility.Collapsed;
                 BtnCancel.IsEnabled = true;
                 displayRequest.RequestRelease();
+            }
+        }
+
+        private Border[] _batchSegmentBorders;
+
+        private void InitBatchSegmentBar(int count)
+        {
+            BatchSegmentBar.Children.Clear();
+            _batchSegmentBorders = new Border[count];
+
+            // Fit segments into ~336px (400 MaxWidth − 2×32 padding), 3px gap between
+            int segWidth = Math.Max(6, Math.Min(40, (336 - (count - 1) * 3) / count));
+
+            for (int i = 0; i < count; i++)
+            {
+                var b = new Border
+                {
+                    Width = segWidth,
+                    Height = 10,
+                    CornerRadius = new CornerRadius(3),
+                    Margin = new Thickness(i == 0 ? 0 : 3, 0, 0, 0),
+                    Background = new SolidColorBrush(Color.FromArgb(255, 158, 158, 158))
+                };
+                BatchSegmentBar.Children.Add(b);
+                _batchSegmentBorders[i] = b;
+            }
+
+            BatchSegmentBar.Visibility = Visibility.Visible;
+        }
+
+        private void UpdateBatchSegments(int completedCount, int currentIndex)
+        {
+            if (_batchSegmentBorders == null) return;
+            for (int i = 0; i < _batchSegmentBorders.Length; i++)
+            {
+                Color c;
+                if (i < completedCount)
+                    c = Color.FromArgb(255, 76, 175, 80);       // green — done
+                else if (i == currentIndex)
+                    c = Color.FromArgb(255, 100, 181, 246);     // light blue — in progress
+                else
+                    c = Color.FromArgb(255, 158, 158, 158);     // grey — pending
+                _batchSegmentBorders[i].Background = new SolidColorBrush(c);
             }
         }
 
