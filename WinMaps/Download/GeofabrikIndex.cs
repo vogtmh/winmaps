@@ -94,6 +94,29 @@ namespace WinMaps.Download
         }
 
         /// <summary>
+        /// Returns all leaf descendants of the given region (regions with no children),
+        /// collected depth-first. If the region itself has no children it returns just itself.
+        /// </summary>
+        public List<GeofabrikRegion> GetLeaves(string regionId)
+        {
+            var result = new List<GeofabrikRegion>();
+            CollectLeaves(regionId, result);
+            return result;
+        }
+
+        private void CollectLeaves(string regionId, List<GeofabrikRegion> result)
+        {
+            if (!HasChildren(regionId))
+            {
+                var region = GetRegion(regionId);
+                if (region != null) result.Add(region);
+                return;
+            }
+            foreach (var child in GetChildren(regionId))
+                CollectLeaves(child.Id, result);
+        }
+
+        /// <summary>
         /// Returns a region by its ID, or null if not found.
         /// </summary>
         public GeofabrikRegion GetRegion(string id)

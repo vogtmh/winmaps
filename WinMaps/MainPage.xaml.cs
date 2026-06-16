@@ -822,9 +822,38 @@ namespace WinMaps
             var geoRegion = _geofabrikIndex.GetRegion(regionId);
             if (geoRegion == null) return;
 
+            string countryKey = _geofabrikIndex.GetCountryId(regionId);
+
+            // If region has children, collect leaves and offer batch download
+            if (_geofabrikIndex.HasChildren(regionId))
+            {
+                var leaves = _geofabrikIndex.GetLeaves(regionId);
+                string leafNames = string.Join("\n", leaves.Select(l => "  \u2022 " + l.Name));
+                var dialog = new MessageDialog(
+                    $"This will download all {leaves.Count} sub-regions of \"{geoRegion.Name}\" one by one:\n\n{leafNames}",
+                    "Download All Sub-regions");
+                dialog.Commands.Add(new UICommand("Download All"));
+                dialog.Commands.Add(new UICommand("Cancel"));
+                dialog.DefaultCommandIndex = 0;
+                dialog.CancelCommandIndex = 1;
+                var result = await dialog.ShowAsync();
+                if (result.Label != "Download All") return;
+
+                var regions = leaves.Select(l =>
+                {
+                    var r = MapRegion.FromGeofabrik(l);
+                    r.CountryKey = countryKey;
+                    return r;
+                }).ToList();
+
+                MapManagerPanel.Visibility = Visibility.Collapsed;
+                await StartBatchDownloadAndImport(regions);
+                return;
+            }
+
             _selectedRegion = MapRegion.FromGeofabrik(geoRegion);
             // Resolve country via parent chain (IDs have no slashes in Geofabrik JSON)
-            _selectedRegion.CountryKey = _geofabrikIndex.GetCountryId(regionId);
+            _selectedRegion.CountryKey = countryKey;
 
             // If this exact region is already installed, ask before re-downloading
             var installedIds = GetInstalledRegionIds();
@@ -866,56 +895,8 @@ namespace WinMaps
 
             try
             {
-                string pbfPath = await _downloadManager.GetExistingMapPath(_selectedRegion);
-
-                if (pbfPath == null)
-                {
-                    TxtOverlayTitle.Text = "Downloading...";
-                    TxtOverlayStatus.Text = _selectedRegion.Name;
-                    ProgressOverlay.Value = 0;
-                    TxtOverlayDetail.Text = "";
-
-                    _downloadManager.OnProgress += OnDownloadProgress;
-                    pbfPath = await _downloadManager.DownloadAsync(_selectedRegion, _cts.Token);
-                    _downloadManager.OnProgress -= OnDownloadProgress;
-                }
-
-                TxtOverlayTitle.Text = "Importing...";
-                TxtOverlayStatus.Text = "Parsing map data — this may take several minutes.";
-                ProgressOverlay.Value = 0;
-                TxtOverlayDetail.Text = "";
-
-                string dbPath = await _downloadManager.GetDatabasePath(_selectedRegion);
-                _db?.Dispose();
-                _db = new MapDatabase(dbPath);
-                await _db.OpenAsync();
-
-                var importer = new MapImporter();
-                importer.OnProgress += OnImportProgress;
-                await importer.ImportAsync(pbfPath, _db, _cts.Token,
-                    _selectedRegion.Id, _selectedRegion.Name);
-                importer.OnProgress -= OnImportProgress;
-
-                // Register at country level — all sub-regions share one country DB
-                string countryKey = _selectedRegion.CountryKey;
-                string countryDisplayName = GetCountryDisplayName(countryKey, _selectedRegion.Id);
-                SaveMapName(countryKey, countryDisplayName);
-                SetActiveMapId(countryKey);
-                AddInstalledRegion(_selectedRegion.Id, countryKey);
-
-                _renderer = new MapRenderer(_db, _viewport, _currentTheme);
-
-                var bounds = _db.GetBounds();
-                if (bounds.HasValue)
-                {
-                    _viewport.CenterLat = (bounds.Value.minLat + bounds.Value.maxLat) / 2.0;
-                    _viewport.CenterLon = (bounds.Value.minLon + bounds.Value.maxLon) / 2.0;
-                }
-
-                OverlayPanel.Visibility = Visibility.Collapsed;
-                _initialGpsCentered = false;
-                StartGps();
-                RedrawMap();
+                await DownloadAndImportRegionAsync(_selectedRegion, _cts.Token);
+                FinalizeMapAfterImport(_selectedRegion.CountryKey);
             }
             catch (OperationCanceledException)
             {
@@ -924,7 +905,6 @@ namespace WinMaps
                 TxtOverlayStatus.Text = "Cancelled.";
                 TxtOverlayDetail.Text = "";
 
-                // If no maps exist, show browse again
                 if (GetMapNames().Count == 0)
                 {
                     OverlayPanel.Visibility = Visibility.Collapsed;
@@ -939,8 +919,6 @@ namespace WinMaps
             {
                 TxtOverlayStatus.Text = $"Error: {ex.Message}";
                 TxtOverlayDetail.Text = "";
-
-                // Show a way to retry or go back
                 BtnDownload.Content = "Retry";
                 BtnDownload.Visibility = Visibility.Visible;
             }
@@ -950,6 +928,137 @@ namespace WinMaps
                 BtnCancel.IsEnabled = true;
                 displayRequest.RequestRelease();
             }
+        }
+
+        private async Task StartBatchDownloadAndImport(List<MapRegion> regions)
+        {
+            OverlayPanel.Visibility = Visibility.Visible;
+            BtnDownload.Visibility = Visibility.Collapsed;
+            BtnCancel.Visibility = Visibility.Visible;
+            _cts = new CancellationTokenSource();
+
+            var displayRequest = new DisplayRequest();
+            displayRequest.RequestActive();
+
+            int total = regions.Count;
+            int done = 0;
+            string lastCountryKey = regions.Count > 0 ? regions[0].CountryKey : null;
+
+            try
+            {
+                foreach (var region in regions)
+                {
+                    _selectedRegion = region; // keep in sync so CleanupPartialData works
+                    TxtOverlayTitle.Text = $"Region {done + 1} of {total}";
+                    lastCountryKey = region.CountryKey;
+
+                    await DownloadAndImportRegionAsync(region, _cts.Token);
+                    done++;
+                }
+
+                if (lastCountryKey != null)
+                    FinalizeMapAfterImport(lastCountryKey);
+            }
+            catch (OperationCanceledException)
+            {
+                TxtOverlayStatus.Text = "Cancelled. Cleaning up...";
+                await CleanupPartialData();
+                TxtOverlayStatus.Text = $"Cancelled after {done} of {total} regions.";
+                TxtOverlayDetail.Text = "";
+
+                if (GetMapNames().Count == 0)
+                {
+                    OverlayPanel.Visibility = Visibility.Collapsed;
+                    ShowMapManager(startInBrowse: true);
+                }
+                else
+                {
+                    // Already-completed regions are kept; just close overlay
+                    if (lastCountryKey != null && done > 0)
+                        FinalizeMapAfterImport(lastCountryKey);
+                    else
+                        OverlayPanel.Visibility = Visibility.Collapsed;
+                }
+            }
+            catch (Exception ex)
+            {
+                TxtOverlayStatus.Text = $"Error on region {done + 1} of {total}: {ex.Message}";
+                TxtOverlayDetail.Text = "";
+                BtnDownload.Visibility = Visibility.Collapsed; // no retry for batch
+            }
+            finally
+            {
+                BtnCancel.Visibility = Visibility.Collapsed;
+                BtnCancel.IsEnabled = true;
+                displayRequest.RequestRelease();
+            }
+        }
+
+        /// <summary>
+        /// Downloads and imports a single region into the shared country DB.
+        /// Caller is responsible for UI setup (overlay visible, CTS) and teardown.
+        /// </summary>
+        private async Task DownloadAndImportRegionAsync(MapRegion region, CancellationToken ct)
+        {
+            string pbfPath = await _downloadManager.GetExistingMapPath(region);
+
+            if (pbfPath == null)
+            {
+                TxtOverlayTitle.Text = "Downloading...";
+                TxtOverlayStatus.Text = region.Name;
+                ProgressOverlay.Value = 0;
+                TxtOverlayDetail.Text = "";
+
+                _downloadManager.OnProgress += OnDownloadProgress;
+                pbfPath = await _downloadManager.DownloadAsync(region, ct);
+                _downloadManager.OnProgress -= OnDownloadProgress;
+            }
+
+            TxtOverlayTitle.Text = "Importing...";
+            TxtOverlayStatus.Text = region.Name;
+            ProgressOverlay.Value = 0;
+            TxtOverlayDetail.Text = "";
+
+            string dbPath = await _downloadManager.GetDatabasePath(region);
+
+            // Open or reuse the DB (all regions in same country share the same file)
+            if (_db == null)
+            {
+                _db = new MapDatabase(dbPath);
+                await _db.OpenAsync();
+            }
+
+            var importer = new MapImporter();
+            importer.OnProgress += OnImportProgress;
+            await importer.ImportAsync(pbfPath, _db, ct, region.Id, region.Name);
+            importer.OnProgress -= OnImportProgress;
+
+            string countryKey = region.CountryKey;
+            string countryDisplayName = GetCountryDisplayName(countryKey, region.Id);
+            SaveMapName(countryKey, countryDisplayName);
+            SetActiveMapId(countryKey);
+            AddInstalledRegion(region.Id, countryKey);
+        }
+
+        /// <summary>
+        /// Centers the viewport on the current DB bounds and shows the map.
+        /// Called once after all regions in a (batch) import have completed.
+        /// </summary>
+        private void FinalizeMapAfterImport(string countryKey)
+        {
+            _renderer = new MapRenderer(_db, _viewport, _currentTheme);
+
+            var bounds = _db.GetBounds();
+            if (bounds.HasValue)
+            {
+                _viewport.CenterLat = (bounds.Value.minLat + bounds.Value.maxLat) / 2.0;
+                _viewport.CenterLon = (bounds.Value.minLon + bounds.Value.maxLon) / 2.0;
+            }
+
+            OverlayPanel.Visibility = Visibility.Collapsed;
+            _initialGpsCentered = false;
+            StartGps();
+            RedrawMap();
         }
 
         private void BtnCancel_Click(object sender, RoutedEventArgs e)
