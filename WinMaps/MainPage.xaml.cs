@@ -1271,7 +1271,7 @@ namespace WinMaps
             {
                 _viewport.CenterLat = (double)settings.Values["viewport_lat"];
                 _viewport.CenterLon = (double)settings.Values["viewport_lon"];
-                _viewport.Zoom = (double)settings.Values["viewport_zoom"];
+                _viewport.Zoom = 16; // always reset to Z16 on start to avoid crash at high zoom levels
             }
         }
 
