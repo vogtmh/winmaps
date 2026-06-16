@@ -216,9 +216,9 @@ namespace WinMaps.Download
                 if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(name))
                     continue;
 
-                // Skip entries without a PBF URL entirely
-                if (string.IsNullOrEmpty(pbfUrl))
-                    continue;
+                // Note: continents have no PBF URL but are kept in the index so that
+                // GetRoots() and GetChildren() work correctly for hierarchy navigation.
+                // PbfUrl will be null for continents — callers must check before downloading.
 
                 var region = new GeofabrikRegion
                 {

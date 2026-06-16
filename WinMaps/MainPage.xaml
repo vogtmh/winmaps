@@ -193,9 +193,8 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Button x:Name="BtnWorldMapBack" Content="←" FontSize="18"
+                    <Button x:Name="BtnWorldMapBack" Content="← My Maps" FontSize="16"
                             Background="Transparent" Margin="0,0,8,0"
-                            Visibility="Collapsed"
                             Click="BtnWorldMapBack_Click" />
                     <TextBlock x:Name="TxtWorldMapTitle" Text="World"
                                Grid.Column="1" FontSize="16" FontWeight="SemiBold"

@@ -764,7 +764,14 @@ namespace WinMaps
 
         private void BtnWorldMapBack_Click(object sender, RoutedEventArgs e)
         {
-            if (_worldMapStack.Count > 0) _worldMapStack.Pop();
+            if (_worldMapStack.Count == 0)
+            {
+                // At world root — go back to My Maps
+                WorldMapView.Visibility = Visibility.Collapsed;
+                MyMapsView.Visibility = Visibility.Visible;
+                return;
+            }
+            _worldMapStack.Pop();
             string parent = _worldMapStack.Count > 0 ? _worldMapStack.Peek() : null;
             ShowWorldMapLevel(parent);
         }
@@ -824,14 +831,15 @@ namespace WinMaps
             if (parentId == null)
             {
                 TxtWorldMapTitle.Text = "World";
-                BtnWorldMapBack.Visibility = Visibility.Collapsed;
+                BtnWorldMapBack.Content = "← My Maps";
             }
             else
             {
                 var pr = _geofabrikIndex.GetRegion(parentId);
                 TxtWorldMapTitle.Text = pr?.Name ?? parentId;
-                BtnWorldMapBack.Visibility = Visibility.Visible;
+                BtnWorldMapBack.Content = "←";
             }
+            BtnWorldMapBack.Visibility = Visibility.Visible;
 
             WorldMapCanvas.Invalidate();
         }
