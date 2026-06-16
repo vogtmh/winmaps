@@ -577,7 +577,7 @@ namespace WinMaps
                 {
                     Id = region.Id,
                     Name = alreadyDownloaded ? region.Name + " ✓" : region.Name,
-                    DownloadVisibility = (isContinent || alreadyDownloaded) ? Visibility.Collapsed : Visibility.Visible,
+                    DownloadVisibility = ((isContinent && hasChildren) || alreadyDownloaded) ? Visibility.Collapsed : Visibility.Visible,
                     DrillVisibility = hasChildren ? Visibility.Visible : Visibility.Collapsed
                 });
             }
