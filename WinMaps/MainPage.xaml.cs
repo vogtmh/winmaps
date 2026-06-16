@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Windows.Devices.Geolocation;
 using Windows.Foundation;
+using Windows.System.Display;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -111,6 +112,9 @@ namespace WinMaps
             BtnDownload.IsEnabled = false;
             _cts = new CancellationTokenSource();
 
+            var displayRequest = new DisplayRequest();
+            displayRequest.RequestActive();
+
             try
             {
                 string pbfPath = await _downloadManager.GetExistingMapPath(_selectedRegion);
@@ -163,6 +167,10 @@ namespace WinMaps
             {
                 TxtOverlayStatus.Text = $"Error: {ex.Message}";
                 BtnDownload.IsEnabled = true;
+            }
+            finally
+            {
+                displayRequest.RequestRelease();
             }
         }
 

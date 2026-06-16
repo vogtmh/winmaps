@@ -40,146 +40,111 @@ namespace WinMaps.Data
 
             long fileSize = new FileInfo(pbfPath).Length;
 
-            // ---- Pass 1: Nodes ----
+            // ---- Single pass: buffer nodes in memory, resolve ways inline ----
+            // Phase 1 (reported as "Nodes"): collect all nodes into memory dictionary
+            // Phase 2 (reported as "Ways"): when ways arrive, resolve coords + insert
+            //
+            // PBF block order guarantees: within each PrimitiveBlock, dense nodes
+            // come before ways. But nodes referenced by a way may be in an earlier block.
+            // So we do a single pass but buffer ALL nodes first (they arrive before ways
+            // in well-formed PBF files from Geofabrik).
+
             ReportProgress(ImportPhase.Nodes, 0, 0, 0);
 
+            var nodeBuffer = new Dictionary<long, (double lat, double lon)>();
             long nodeCount = 0;
+            long wayCount = 0;
             int batchCount = 0;
 
-            using (var stream = File.OpenRead(pbfPath))
+            db.PrepareInsertStatement();
+            Microsoft.Data.Sqlite.SqliteTransaction tx = db.BeginTransaction();
+
+            try
             {
-                var parser = new OsmPbfParser();
-                Microsoft.Data.Sqlite.SqliteTransaction tx = db.BeginTransaction();
-
-                parser.OnNode += node =>
+                using (var stream = File.OpenRead(pbfPath))
                 {
-                    db.InsertNode(node.Id, node.Lat, node.Lon, tx);
-                    nodeCount++;
-                    batchCount++;
+                    var parser = new OsmPbfParser();
 
-                    if (batchCount >= BatchSize)
+                    parser.OnNode += node =>
                     {
-                        tx.Commit();
-                        tx.Dispose();
-                        tx = db.BeginTransaction();
-                        batchCount = 0;
-                    }
-                };
+                        nodeBuffer[node.Id] = (node.Lat, node.Lon);
+                        nodeCount++;
+                    };
 
-                parser.OnProgress += (pos, total) =>
-                {
-                    double pct = total > 0 ? (double)pos / total * 100.0 : 0;
-                    ReportProgress(ImportPhase.Nodes, pct, nodeCount, 0);
-                };
-
-                parser.Parse(stream, fileSize, ct);
-
-                tx.Commit();
-                tx.Dispose();
-            }
-
-            ReportProgress(ImportPhase.Nodes, 100, nodeCount, 0);
-
-            // ---- Pass 2: Ways ----
-            ReportProgress(ImportPhase.Ways, 0, nodeCount, 0);
-
-            long wayCount = 0;
-            batchCount = 0;
-
-            // We need to collect way node refs and compute bounds after inserting
-            var pendingBounds = new List<(long wayId, long[] nodeRefs)>();
-
-            using (var stream = File.OpenRead(pbfPath))
-            {
-                var parser = new OsmPbfParser();
-                Microsoft.Data.Sqlite.SqliteTransaction tx = db.BeginTransaction();
-
-                parser.OnWay += way =>
-                {
-                    db.InsertWay(way.Id, (int)way.Type, way.SubType, tx);
-
-                    for (int i = 0; i < way.NodeRefs.Length; i++)
+                    parser.OnWay += way =>
                     {
-                        db.InsertWayNode(way.Id, i, way.NodeRefs[i], tx);
-                    }
-
-                    pendingBounds.Add((way.Id, way.NodeRefs));
-
-                    wayCount++;
-                    batchCount++;
-
-                    if (batchCount >= BatchSize)
-                    {
-                        tx.Commit();
-                        tx.Dispose();
-                        tx = db.BeginTransaction();
-                        batchCount = 0;
-                    }
-                };
-
-                parser.OnProgress += (pos, total) =>
-                {
-                    double pct = total > 0 ? (double)pos / total * 100.0 : 0;
-                    ReportProgress(ImportPhase.Ways, pct, nodeCount, wayCount);
-                };
-
-                parser.Parse(stream, fileSize, ct);
-
-                tx.Commit();
-                tx.Dispose();
-            }
-
-            ReportProgress(ImportPhase.Ways, 100, nodeCount, wayCount);
-
-            // ---- Build way bounds ----
-            ReportProgress(ImportPhase.BuildingIndex, 0, nodeCount, wayCount);
-
-            int boundsProcessed = 0;
-            int totalBounds = pendingBounds.Count;
-
-            {
-                var tx = db.BeginTransaction();
-                batchCount = 0;
-
-                foreach (var (wayId, nodeRefs) in pendingBounds)
-                {
-                    ct.ThrowIfCancellationRequested();
-
-                    var geometry = db.GetWayGeometry(wayId);
-                    if (geometry.Count > 0)
-                    {
+                        // Resolve node refs to coordinates
+                        var points = new List<(double lat, double lon)>(way.NodeRefs.Length);
                         double minLat = double.MaxValue, maxLat = double.MinValue;
                         double minLon = double.MaxValue, maxLon = double.MinValue;
+                        bool allResolved = true;
 
-                        foreach (var (lat, lon) in geometry)
+                        for (int i = 0; i < way.NodeRefs.Length; i++)
                         {
-                            if (lat < minLat) minLat = lat;
-                            if (lat > maxLat) maxLat = lat;
-                            if (lon < minLon) minLon = lon;
-                            if (lon > maxLon) maxLon = lon;
+                            if (nodeBuffer.TryGetValue(way.NodeRefs[i], out var coord))
+                            {
+                                points.Add(coord);
+                                if (coord.lat < minLat) minLat = coord.lat;
+                                if (coord.lat > maxLat) maxLat = coord.lat;
+                                if (coord.lon < minLon) minLon = coord.lon;
+                                if (coord.lon > maxLon) maxLon = coord.lon;
+                            }
+                            else
+                            {
+                                allResolved = false;
+                            }
                         }
 
-                        db.InsertWayBounds(wayId, minLat, maxLat, minLon, maxLon, tx);
-                    }
+                        // Need at least 2 points for a renderable way
+                        if (points.Count < 2)
+                            return;
 
-                    boundsProcessed++;
-                    batchCount++;
+                        byte[] geometry = MapDatabase.EncodeGeometry(points);
+                        db.InsertWay(way.Id, (int)way.Type, way.SubType, geometry,
+                            minLat, maxLat, minLon, maxLon, tx);
 
-                    if (batchCount >= BatchSize)
+                        wayCount++;
+                        batchCount++;
+
+                        if (batchCount >= BatchSize)
+                        {
+                            tx.Commit();
+                            tx.Dispose();
+                            tx = db.BeginTransaction();
+                            batchCount = 0;
+                        }
+                    };
+
+                    parser.OnProgress += (pos, total) =>
                     {
-                        tx.Commit();
-                        tx.Dispose();
-                        tx = db.BeginTransaction();
-                        batchCount = 0;
+                        double pct = total > 0 ? (double)pos / total * 100.0 : 0;
+                        if (wayCount > 0)
+                            ReportProgress(ImportPhase.Ways, pct, nodeCount, wayCount);
+                        else
+                            ReportProgress(ImportPhase.Nodes, pct, nodeCount, 0);
+                    };
 
-                        double pct = totalBounds > 0 ? (double)boundsProcessed / totalBounds * 100.0 : 0;
-                        ReportProgress(ImportPhase.BuildingIndex, pct, nodeCount, wayCount);
-                    }
+                    parser.Parse(stream, fileSize, ct);
                 }
 
+                // Commit remaining batch
                 tx.Commit();
                 tx.Dispose();
+                tx = null;
             }
+            finally
+            {
+                tx?.Dispose();
+                db.DisposeInsertStatement();
+            }
+
+            // Free node buffer — no longer needed
+            nodeBuffer.Clear();
+            nodeBuffer = null;
+
+            // Build spatial index
+            ReportProgress(ImportPhase.BuildingIndex, 50, nodeCount, wayCount);
+            db.CreateSpatialIndex();
 
             db.SetMetadata("import_date", DateTime.UtcNow.ToString("O"));
             db.SetMetadata("node_count", nodeCount.ToString());

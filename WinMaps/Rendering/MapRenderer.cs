@@ -83,12 +83,12 @@ namespace WinMaps.Rendering
             _cacheZoom = _viewport.Zoom;
 
             int typeFilter = -1;
-            var ways = _db.QueryWaysInBounds(_cacheMinLat, _cacheMaxLat, _cacheMinLon, _cacheMaxLon, typeFilter);
+            var ways = _db.QueryWaysWithGeometry(_cacheMinLat, _cacheMaxLat, _cacheMinLon, _cacheMaxLon, typeFilter);
 
             _cachedWays = new List<CachedWay>();
             int count = 0;
 
-            foreach (var (id, type, subType) in ways)
+            foreach (var (type, subType, points) in ways)
             {
                 if (!ShouldDrawAtZoom(type, subType, _viewport.Zoom))
                     continue;
@@ -96,15 +96,14 @@ namespace WinMaps.Rendering
                 if (count >= MaxWaysPerFrame)
                     break;
 
-                var geometry = _db.GetWayGeometry(id);
-                if (geometry.Count < 2)
+                if (points.Count < 2)
                     continue;
 
                 _cachedWays.Add(new CachedWay
                 {
                     Type = type,
                     SubType = subType,
-                    Points = geometry
+                    Points = points
                 });
                 count++;
             }
