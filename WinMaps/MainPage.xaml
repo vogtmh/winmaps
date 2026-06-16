@@ -90,7 +90,7 @@
 
         <!-- Map Manager overlay -->
         <Grid x:Name="MapManagerPanel" Visibility="Collapsed"
-              Background="{ThemeResource SystemControlBackgroundAltMediumHighBrush}">
+              Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
             <!-- My Maps view -->
             <Grid x:Name="MyMapsView" Visibility="Visible">
