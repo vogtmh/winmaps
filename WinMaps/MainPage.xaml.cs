@@ -108,6 +108,9 @@ namespace WinMaps
 
         private async Task InitializeAsync()
         {
+            // Migrate any pre-existing .db files that aren't registered
+            MigrateUnregisteredMaps();
+
             // Find the active map
             _activeMapId = GetActiveMapId();
             var mapNames = GetMapNames();
@@ -165,6 +168,48 @@ namespace WinMaps
             ShowMapManager(startInBrowse: true);
         }
 
+        // ---- Migration for pre-existing maps ----
+
+        private void MigrateUnregisteredMaps()
+        {
+            string mapsPath = GetMapsFolder();
+            var mapNames = GetMapNames();
+
+            foreach (string dbFile in Directory.GetFiles(mapsPath, "*.db"))
+            {
+                // Extract map ID: "stuttgart-regbez.osm.db" → "stuttgart-regbez"
+                string fileName = Path.GetFileName(dbFile);
+                string mapId;
+                if (fileName.EndsWith(".osm.db", StringComparison.OrdinalIgnoreCase))
+                    mapId = fileName.Substring(0, fileName.Length - ".osm.db".Length);
+                else
+                    mapId = Path.GetFileNameWithoutExtension(fileName);
+
+                if (!mapNames.ContainsKey(mapId))
+                {
+                    string displayName = mapId
+                        .Replace("-", " ")
+                        .Replace("_", " ");
+                    // Capitalize first letter of each word
+                    var parts = displayName.Split(' ');
+                    for (int i = 0; i < parts.Length; i++)
+                    {
+                        if (parts[i].Length > 0)
+                            parts[i] = char.ToUpper(parts[i][0]) + parts[i].Substring(1);
+                    }
+                    displayName = string.Join(" ", parts);
+
+                    SaveMapName(mapId, displayName);
+
+                    // If no active map is set, use this one
+                    if (GetActiveMapId() == null)
+                    {
+                        SetActiveMapId(mapId);
+                    }
+                }
+            }
+        }
+
         // ---- Map file helpers ----
 
         private string GetMapsFolder()
@@ -178,7 +223,7 @@ namespace WinMaps
 
         private string GetDbPathForMap(string mapId)
         {
-            return Path.Combine(GetMapsFolder(), mapId + ".db");
+            return Path.Combine(GetMapsFolder(), mapId + ".osm.db");
         }
 
         private string GetPbfPathForMap(string mapId)
