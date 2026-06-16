@@ -16,43 +16,21 @@ namespace WinMaps.Download
 
     internal class MapRegion
     {
+        public string Id;
         public string Name;
         public string Url;
         public string FileName;
 
-        public static readonly MapRegion[] AvailableRegions = new[]
+        public static MapRegion FromGeofabrik(GeofabrikRegion geo)
         {
-            new MapRegion
+            return new MapRegion
             {
-                Name = "Stuttgart Region (Germany)",
-                Url = "https://download.geofabrik.de/europe/germany/baden-wuerttemberg/stuttgart-regbez-latest.osm.pbf",
-                FileName = "stuttgart-regbez.osm.pbf"
-            },
-            new MapRegion
-            {
-                Name = "Baden-Württemberg (Germany)",
-                Url = "https://download.geofabrik.de/europe/germany/baden-wuerttemberg-latest.osm.pbf",
-                FileName = "baden-wuerttemberg.osm.pbf"
-            },
-            new MapRegion
-            {
-                Name = "Germany",
-                Url = "https://download.geofabrik.de/europe/germany-latest.osm.pbf",
-                FileName = "germany.osm.pbf"
-            },
-            new MapRegion
-            {
-                Name = "Saarland (Germany)",
-                Url = "https://download.geofabrik.de/europe/germany/saarland-latest.osm.pbf",
-                FileName = "saarland.osm.pbf"
-            },
-            new MapRegion
-            {
-                Name = "Bremen (Germany)",
-                Url = "https://download.geofabrik.de/europe/germany/bremen-latest.osm.pbf",
-                FileName = "bremen.osm.pbf"
-            }
-        };
+                Id = geo.Id,
+                Name = geo.Name,
+                Url = geo.PbfUrl,
+                FileName = geo.Id + ".osm.pbf"
+            };
+        }
     }
 
     internal class MapDownloadManager

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Graphics.Canvas.UI.Xaml;
@@ -7,6 +9,7 @@ using Windows.Foundation;
 using Windows.Storage;
 using Windows.System.Display;
 using Windows.UI.Core;
+using Windows.UI.Popups;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Input;
@@ -16,6 +19,24 @@ using WinMaps.Rendering;
 
 namespace WinMaps
 {
+    // View model for My Maps list
+    internal class DownloadedMapItem
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string StatusText { get; set; }
+        public Visibility UseVisibility { get; set; }
+    }
+
+    // View model for Browse list
+    internal class BrowseRegionItem
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public Visibility DownloadVisibility { get; set; }
+        public Visibility DrillVisibility { get; set; }
+    }
+
     public sealed partial class MainPage : Page
     {
         private MapViewport _viewport;
@@ -36,8 +57,13 @@ namespace WinMaps
         private bool _isPanning = false;
         private Point _panStart;
 
-        // Selected region
-        private MapRegion _selectedRegion = MapRegion.AvailableRegions[0]; // Stuttgart
+        // Active region for download/import
+        private MapRegion _selectedRegion;
+        private string _activeMapId;
+
+        // Map manager
+        private GeofabrikIndex _geofabrikIndex;
+        private Stack<string> _browseStack; // parent IDs for back navigation
 
         public MainPage()
         {
@@ -45,9 +71,12 @@ namespace WinMaps
             _viewport = new MapViewport();
             _downloadManager = new MapDownloadManager();
             _cts = new CancellationTokenSource();
+            _geofabrikIndex = new GeofabrikIndex();
+            _browseStack = new Stack<string>();
 
             this.Loaded += MainPage_Loaded;
             this.Unloaded += MainPage_Unloaded;
+            Application.Current.Suspending += (s, args) => SaveViewport();
 
             RestoreViewport();
         }
@@ -79,45 +108,467 @@ namespace WinMaps
 
         private async Task InitializeAsync()
         {
-            string dbPath = await _downloadManager.GetDatabasePath(_selectedRegion);
-            _db = new MapDatabase(dbPath);
+            // Find the active map
+            _activeMapId = GetActiveMapId();
+            var mapNames = GetMapNames();
 
-            try
+            if (_activeMapId != null && mapNames.ContainsKey(_activeMapId))
             {
-                await _db.OpenAsync();
-
-                if (_db.HasData())
+                string dbPath = GetDbPathForMap(_activeMapId);
+                if (File.Exists(dbPath))
                 {
-                    _renderer = new MapRenderer(_db, _viewport);
-
-                    var bounds = _db.GetBounds();
-                    if (bounds.HasValue && !HasSavedViewport())
+                    _db = new MapDatabase(dbPath);
+                    try
                     {
-                        _viewport.CenterLat = (bounds.Value.minLat + bounds.Value.maxLat) / 2.0;
-                        _viewport.CenterLon = (bounds.Value.minLon + bounds.Value.maxLon) / 2.0;
-                    }
+                        await _db.OpenAsync();
+                        if (_db.HasData())
+                        {
+                            _renderer = new MapRenderer(_db, _viewport);
 
-                    OverlayPanel.Visibility = Visibility.Collapsed;
-                    StartGps();
-                    RedrawMap();
+                            var bounds = _db.GetBounds();
+                            if (bounds.HasValue && !HasSavedViewport())
+                            {
+                                _viewport.CenterLat = (bounds.Value.minLat + bounds.Value.maxLat) / 2.0;
+                                _viewport.CenterLon = (bounds.Value.minLon + bounds.Value.maxLon) / 2.0;
+                            }
+
+                            OverlayPanel.Visibility = Visibility.Collapsed;
+                            StartGps();
+                            RedrawMap();
+                            return;
+                        }
+                    }
+                    catch
+                    {
+                        _db?.Dispose();
+                        _db = null;
+                    }
+                }
+            }
+
+            // No valid active map — check if any maps exist
+            if (mapNames.Count > 0)
+            {
+                // Try to use the first available map
+                foreach (var kv in mapNames)
+                {
+                    string dbPath = GetDbPathForMap(kv.Key);
+                    if (File.Exists(dbPath))
+                    {
+                        await SwitchToMap(kv.Key);
+                        return;
+                    }
+                }
+            }
+
+            // No maps at all — show map manager with browse view
+            ShowMapManager(startInBrowse: true);
+        }
+
+        // ---- Map file helpers ----
+
+        private string GetMapsFolder()
+        {
+            var localFolder = ApplicationData.Current.LocalFolder.Path;
+            string mapsPath = Path.Combine(localFolder, "Maps");
+            if (!Directory.Exists(mapsPath))
+                Directory.CreateDirectory(mapsPath);
+            return mapsPath;
+        }
+
+        private string GetDbPathForMap(string mapId)
+        {
+            return Path.Combine(GetMapsFolder(), mapId + ".db");
+        }
+
+        private string GetPbfPathForMap(string mapId)
+        {
+            return Path.Combine(GetMapsFolder(), mapId + ".osm.pbf");
+        }
+
+        // ---- Map metadata in LocalSettings ----
+
+        private string GetActiveMapId()
+        {
+            var settings = ApplicationData.Current.LocalSettings;
+            if (settings.Values.ContainsKey("active_map_id"))
+                return settings.Values["active_map_id"] as string;
+            return null;
+        }
+
+        private void SetActiveMapId(string id)
+        {
+            _activeMapId = id;
+            ApplicationData.Current.LocalSettings.Values["active_map_id"] = id;
+        }
+
+        private Dictionary<string, string> GetMapNames()
+        {
+            var result = new Dictionary<string, string>();
+            var settings = ApplicationData.Current.LocalSettings;
+            if (settings.Values.ContainsKey("map_names"))
+            {
+                string json = settings.Values["map_names"] as string;
+                if (!string.IsNullOrEmpty(json))
+                {
+                    try
+                    {
+                        var obj = Windows.Data.Json.JsonObject.Parse(json);
+                        foreach (var kv in obj)
+                        {
+                            result[kv.Key] = kv.Value.GetString();
+                        }
+                    }
+                    catch { }
+                }
+            }
+            return result;
+        }
+
+        private void SaveMapName(string id, string name)
+        {
+            var names = GetMapNames();
+            names[id] = name;
+            SaveMapNamesDict(names);
+        }
+
+        private void RemoveMapName(string id)
+        {
+            var names = GetMapNames();
+            names.Remove(id);
+            SaveMapNamesDict(names);
+        }
+
+        private void SaveMapNamesDict(Dictionary<string, string> names)
+        {
+            var obj = new Windows.Data.Json.JsonObject();
+            foreach (var kv in names)
+            {
+                obj[kv.Key] = Windows.Data.Json.JsonValue.CreateStringValue(kv.Value);
+            }
+            ApplicationData.Current.LocalSettings.Values["map_names"] = obj.Stringify();
+        }
+
+        // ---- Map Manager UI ----
+
+        private void BtnMapManager_Click(object sender, RoutedEventArgs e)
+        {
+            ShowMapManager(startInBrowse: false);
+        }
+
+        private void ShowMapManager(bool startInBrowse)
+        {
+            MapManagerPanel.Visibility = Visibility.Visible;
+
+            if (startInBrowse)
+            {
+                MyMapsView.Visibility = Visibility.Collapsed;
+                BrowseView.Visibility = Visibility.Visible;
+                ShowBrowseLevel(null); // show continents
+            }
+            else
+            {
+                MyMapsView.Visibility = Visibility.Visible;
+                BrowseView.Visibility = Visibility.Collapsed;
+                RefreshMyMapsList();
+            }
+        }
+
+        private void BtnCloseManager_Click(object sender, RoutedEventArgs e)
+        {
+            MapManagerPanel.Visibility = Visibility.Collapsed;
+        }
+
+        // ---- My Maps ----
+
+        private void RefreshMyMapsList()
+        {
+            var names = GetMapNames();
+            var items = new List<DownloadedMapItem>();
+
+            foreach (var kv in names)
+            {
+                string dbPath = GetDbPathForMap(kv.Key);
+                if (!File.Exists(dbPath)) continue;
+
+                bool isActive = kv.Key == _activeMapId;
+                items.Add(new DownloadedMapItem
+                {
+                    Id = kv.Key,
+                    Name = kv.Value,
+                    StatusText = isActive ? "● Active" : "",
+                    UseVisibility = isActive ? Visibility.Collapsed : Visibility.Visible
+                });
+            }
+
+            LvMyMaps.ItemsSource = items;
+            TxtNoMaps.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private async void BtnUseMap_Click(object sender, RoutedEventArgs e)
+        {
+            var btn = (Button)sender;
+            string mapId = btn.Tag as string;
+            if (mapId == null) return;
+
+            await SwitchToMap(mapId);
+            MapManagerPanel.Visibility = Visibility.Collapsed;
+        }
+
+        private async Task SwitchToMap(string mapId)
+        {
+            // Dispose current
+            _renderer = null;
+            _db?.Dispose();
+            _db = null;
+
+            string dbPath = GetDbPathForMap(mapId);
+            _db = new MapDatabase(dbPath);
+            await _db.OpenAsync();
+
+            _renderer = new MapRenderer(_db, _viewport);
+            SetActiveMapId(mapId);
+
+            // Center on new map bounds
+            var bounds = _db.GetBounds();
+            if (bounds.HasValue)
+            {
+                _viewport.CenterLat = (bounds.Value.minLat + bounds.Value.maxLat) / 2.0;
+                _viewport.CenterLon = (bounds.Value.minLon + bounds.Value.maxLon) / 2.0;
+            }
+
+            OverlayPanel.Visibility = Visibility.Collapsed;
+            _initialGpsCentered = false;
+            StartGps();
+            RedrawMap();
+        }
+
+        private async void BtnDeleteMap_Click(object sender, RoutedEventArgs e)
+        {
+            var btn = (Button)sender;
+            string mapId = btn.Tag as string;
+            if (mapId == null) return;
+
+            var names = GetMapNames();
+            string displayName = names.ContainsKey(mapId) ? names[mapId] : mapId;
+
+            var dialog = new MessageDialog($"Delete \"{displayName}\"? This will remove all map data.", "Delete Map");
+            dialog.Commands.Add(new UICommand("Delete"));
+            dialog.Commands.Add(new UICommand("Cancel"));
+            dialog.DefaultCommandIndex = 1;
+            dialog.CancelCommandIndex = 1;
+
+            var result = await dialog.ShowAsync();
+            if (result.Label != "Delete") return;
+
+            // If this is the active map, dispose it first
+            if (mapId == _activeMapId)
+            {
+                _renderer = null;
+                _db?.Dispose();
+                _db = null;
+                _activeMapId = null;
+                ApplicationData.Current.LocalSettings.Values.Remove("active_map_id");
+            }
+
+            // Delete files
+            await Task.Run(() =>
+            {
+                try
+                {
+                    string dbPath = GetDbPathForMap(mapId);
+                    if (File.Exists(dbPath)) File.Delete(dbPath);
+                    if (File.Exists(dbPath + "-wal")) File.Delete(dbPath + "-wal");
+                    if (File.Exists(dbPath + "-shm")) File.Delete(dbPath + "-shm");
+
+                    string pbfPath = GetPbfPathForMap(mapId);
+                    if (File.Exists(pbfPath)) File.Delete(pbfPath);
+
+                    string partialPath = pbfPath + ".partial";
+                    if (File.Exists(partialPath)) File.Delete(partialPath);
+                }
+                catch { }
+            });
+
+            RemoveMapName(mapId);
+            RefreshMyMapsList();
+
+            // If no maps left, switch to browse
+            var remaining = GetMapNames();
+            if (remaining.Count == 0)
+            {
+                MyMapsView.Visibility = Visibility.Collapsed;
+                BrowseView.Visibility = Visibility.Visible;
+                ShowBrowseLevel(null);
+            }
+            else if (_activeMapId == null)
+            {
+                // Switch to first available map
+                foreach (var kv in remaining)
+                {
+                    string dbPath = GetDbPathForMap(kv.Key);
+                    if (File.Exists(dbPath))
+                    {
+                        await SwitchToMap(kv.Key);
+                        RefreshMyMapsList();
+                        break;
+                    }
+                }
+            }
+        }
+
+        // ---- Browse (Geofabrik catalog) ----
+
+        private void BtnAddMap_Click(object sender, RoutedEventArgs e)
+        {
+            MyMapsView.Visibility = Visibility.Collapsed;
+            BrowseView.Visibility = Visibility.Visible;
+            _browseStack.Clear();
+            ShowBrowseLevel(null); // show continents
+        }
+
+        private async void ShowBrowseLevel(string parentId)
+        {
+            if (!_geofabrikIndex.IsLoaded)
+            {
+                TxtBrowseTitle.Text = "Loading catalog...";
+                LvBrowse.ItemsSource = null;
+                try
+                {
+                    await _geofabrikIndex.LoadAsync();
+                }
+                catch (Exception ex)
+                {
+                    TxtBrowseTitle.Text = "Error loading catalog";
+                    LvBrowse.ItemsSource = new List<BrowseRegionItem>
+                    {
+                        new BrowseRegionItem { Name = ex.Message, DownloadVisibility = Visibility.Collapsed, DrillVisibility = Visibility.Collapsed }
+                    };
                     return;
                 }
             }
-            catch
+
+            // Update title
+            if (parentId == null)
             {
-                // Database doesn't exist or is corrupt
+                TxtBrowseTitle.Text = "Select Region";
+                BtnBrowseBack.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                TxtBrowseTitle.Text = _geofabrikIndex.GetBreadcrumb(parentId);
+                BtnBrowseBack.Visibility = Visibility.Visible;
             }
 
-            OverlayPanel.Visibility = Visibility.Visible;
-            TxtOverlayStatus.Text = "No map data found. Download a region to get started.";
-            BtnDownload.IsEnabled = true;
+            var children = parentId == null
+                ? _geofabrikIndex.GetRoots()
+                : _geofabrikIndex.GetChildren(parentId);
+
+            var downloadedNames = GetMapNames();
+            var items = new List<BrowseRegionItem>();
+
+            foreach (var region in children)
+            {
+                bool isContinent = _geofabrikIndex.IsContinent(region.Id);
+                bool hasChildren = _geofabrikIndex.HasChildren(region.Id);
+                bool alreadyDownloaded = downloadedNames.ContainsKey(region.Id);
+
+                items.Add(new BrowseRegionItem
+                {
+                    Id = region.Id,
+                    Name = alreadyDownloaded ? region.Name + " ✓" : region.Name,
+                    DownloadVisibility = (isContinent || alreadyDownloaded) ? Visibility.Collapsed : Visibility.Visible,
+                    DrillVisibility = hasChildren ? Visibility.Visible : Visibility.Collapsed
+                });
+            }
+
+            LvBrowse.ItemsSource = items;
+        }
+
+        private void BtnDrillInto_Click(object sender, RoutedEventArgs e)
+        {
+            var btn = (Button)sender;
+            string regionId = btn.Tag as string;
+            if (regionId == null) return;
+
+            // Get current parent from the stack or null
+            string currentParent = _browseStack.Count > 0 ? _browseStack.Peek() : null;
+
+            // Find the actual current level parent (the parent of items currently shown)
+            // We need to push the ID we're drilling into
+            _browseStack.Push(regionId);
+            ShowBrowseLevel(regionId);
+        }
+
+        private void BtnBrowseBack_Click(object sender, RoutedEventArgs e)
+        {
+            if (_browseStack.Count > 0)
+            {
+                _browseStack.Pop(); // remove current level
+            }
+
+            if (_browseStack.Count > 0)
+            {
+                ShowBrowseLevel(_browseStack.Peek());
+            }
+            else
+            {
+                ShowBrowseLevel(null); // back to continents
+            }
+        }
+
+        private async void BtnRefreshCatalog_Click(object sender, RoutedEventArgs e)
+        {
+            TxtBrowseTitle.Text = "Refreshing catalog...";
+            LvBrowse.ItemsSource = null;
+            try
+            {
+                await _geofabrikIndex.RefreshAsync();
+
+                // Re-show current level
+                string currentParent = _browseStack.Count > 0 ? _browseStack.Peek() : null;
+                ShowBrowseLevel(currentParent);
+            }
+            catch (Exception ex)
+            {
+                TxtBrowseTitle.Text = "Refresh failed";
+                LvBrowse.ItemsSource = new List<BrowseRegionItem>
+                {
+                    new BrowseRegionItem { Name = ex.Message, DownloadVisibility = Visibility.Collapsed, DrillVisibility = Visibility.Collapsed }
+                };
+            }
+        }
+
+        // ---- Download from Browse ----
+
+        private async void BtnDownloadRegion_Click(object sender, RoutedEventArgs e)
+        {
+            var btn = (Button)sender;
+            string regionId = btn.Tag as string;
+            if (regionId == null) return;
+
+            var geoRegion = _geofabrikIndex.GetRegion(regionId);
+            if (geoRegion == null) return;
+
+            _selectedRegion = MapRegion.FromGeofabrik(geoRegion);
+
+            // Hide map manager, show download overlay
+            MapManagerPanel.Visibility = Visibility.Collapsed;
+            await StartDownloadAndImport();
         }
 
         // ---- Download & Import ----
 
         private async void BtnDownload_Click(object sender, RoutedEventArgs e)
         {
-            BtnDownload.IsEnabled = false;
+            if (_selectedRegion == null) return;
+            await StartDownloadAndImport();
+        }
+
+        private async Task StartDownloadAndImport()
+        {
+            OverlayPanel.Visibility = Visibility.Visible;
+            BtnDownload.Visibility = Visibility.Collapsed;
             BtnCancel.Visibility = Visibility.Visible;
             _cts = new CancellationTokenSource();
 
@@ -133,6 +584,7 @@ namespace WinMaps
                     TxtOverlayTitle.Text = "Downloading...";
                     TxtOverlayStatus.Text = _selectedRegion.Name;
                     ProgressOverlay.Value = 0;
+                    TxtOverlayDetail.Text = "";
 
                     _downloadManager.OnProgress += OnDownloadProgress;
                     pbfPath = await _downloadManager.DownloadAsync(_selectedRegion, _cts.Token);
@@ -154,16 +606,21 @@ namespace WinMaps
                 await importer.ImportAsync(pbfPath, _db, _cts.Token);
                 importer.OnProgress -= OnImportProgress;
 
+                // Register this map
+                SaveMapName(_selectedRegion.Id, _selectedRegion.Name);
+                SetActiveMapId(_selectedRegion.Id);
+
                 _renderer = new MapRenderer(_db, _viewport);
 
                 var bounds = _db.GetBounds();
                 if (bounds.HasValue)
                 {
-                    _viewport.ZoomToBounds(bounds.Value.minLat, bounds.Value.maxLat,
-                        bounds.Value.minLon, bounds.Value.maxLon);
+                    _viewport.CenterLat = (bounds.Value.minLat + bounds.Value.maxLat) / 2.0;
+                    _viewport.CenterLon = (bounds.Value.minLon + bounds.Value.maxLon) / 2.0;
                 }
 
                 OverlayPanel.Visibility = Visibility.Collapsed;
+                _initialGpsCentered = false;
                 StartGps();
                 RedrawMap();
             }
@@ -173,12 +630,26 @@ namespace WinMaps
                 await CleanupPartialData();
                 TxtOverlayStatus.Text = "Cancelled.";
                 TxtOverlayDetail.Text = "";
-                BtnDownload.IsEnabled = true;
+
+                // If no maps exist, show browse again
+                if (GetMapNames().Count == 0)
+                {
+                    OverlayPanel.Visibility = Visibility.Collapsed;
+                    ShowMapManager(startInBrowse: true);
+                }
+                else
+                {
+                    OverlayPanel.Visibility = Visibility.Collapsed;
+                }
             }
             catch (Exception ex)
             {
                 TxtOverlayStatus.Text = $"Error: {ex.Message}";
-                BtnDownload.IsEnabled = true;
+                TxtOverlayDetail.Text = "";
+
+                // Show a way to retry or go back
+                BtnDownload.Content = "Retry";
+                BtnDownload.Visibility = Visibility.Visible;
             }
             finally
             {
@@ -197,38 +668,29 @@ namespace WinMaps
 
         private async Task CleanupPartialData()
         {
-            // Close DB so the file can be deleted
             _db?.Dispose();
             _db = null;
 
+            if (_selectedRegion == null) return;
+
+            var region = _selectedRegion;
             await Task.Run(async () =>
             {
                 try
                 {
-                    var localFolder = Windows.Storage.ApplicationData.Current.LocalFolder;
+                    var localFolder = ApplicationData.Current.LocalFolder;
                     var mapsFolder = await localFolder.GetFolderAsync("Maps");
 
-                    // Delete partial download
-                    string partialPath = System.IO.Path.Combine(mapsFolder.Path, _selectedRegion.FileName + ".partial");
-                    if (System.IO.File.Exists(partialPath))
-                        System.IO.File.Delete(partialPath);
+                    string partialPath = Path.Combine(mapsFolder.Path, region.FileName + ".partial");
+                    if (File.Exists(partialPath)) File.Delete(partialPath);
 
-                    // Delete completed PBF
-                    string pbfPath = System.IO.Path.Combine(mapsFolder.Path, _selectedRegion.FileName);
-                    if (System.IO.File.Exists(pbfPath))
-                        System.IO.File.Delete(pbfPath);
+                    string pbfPath = Path.Combine(mapsFolder.Path, region.FileName);
+                    if (File.Exists(pbfPath)) File.Delete(pbfPath);
 
-                    // Delete database
-                    string dbPath = System.IO.Path.Combine(mapsFolder.Path,
-                        System.IO.Path.ChangeExtension(_selectedRegion.FileName, ".db"));
-                    if (System.IO.File.Exists(dbPath))
-                        System.IO.File.Delete(dbPath);
-
-                    // WAL/SHM files
-                    if (System.IO.File.Exists(dbPath + "-wal"))
-                        System.IO.File.Delete(dbPath + "-wal");
-                    if (System.IO.File.Exists(dbPath + "-shm"))
-                        System.IO.File.Delete(dbPath + "-shm");
+                    string dbPath = Path.Combine(mapsFolder.Path, Path.ChangeExtension(region.FileName, ".db"));
+                    if (File.Exists(dbPath)) File.Delete(dbPath);
+                    if (File.Exists(dbPath + "-wal")) File.Delete(dbPath + "-wal");
+                    if (File.Exists(dbPath + "-shm")) File.Delete(dbPath + "-shm");
                 }
                 catch { }
             });
@@ -299,6 +761,7 @@ namespace WinMaps
             MapCanvas.Invalidate();
             TxtZoom.Text = $"Z{_viewport.Zoom:F0}";
             TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
+            SaveViewport();
         }
 
         private void MapCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -332,7 +795,6 @@ namespace WinMaps
             _followGps = false;
             MapCanvas.Invalidate();
 
-            // Start loading new data if we've panned outside the cache bounds
             RedrawMap();
 
             e.Handled = true;
@@ -371,7 +833,6 @@ namespace WinMaps
             _followGps = false;
             MapCanvas.Invalidate();
 
-            // Start loading new data if we've panned/zoomed outside the cache bounds
             RedrawMap();
 
             e.Handled = true;

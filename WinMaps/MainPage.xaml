@@ -38,6 +38,15 @@
             </Button>
         </StackPanel>
 
+        <!-- Map Manager button (bottom-left) -->
+        <Button x:Name="BtnMapManager" Width="44" Height="44"
+                HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                Margin="12,0,0,12"
+                Click="BtnMapManager_Click"
+                Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
+            <TextBlock Text="🗺" FontSize="18" />
+        </Button>
+
         <!-- Status bar (top) -->
         <Grid HorizontalAlignment="Stretch" VerticalAlignment="Top"
               Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
@@ -52,7 +61,7 @@
                        Grid.Column="1" FontSize="12" VerticalAlignment="Center" />
         </Grid>
 
-        <!-- Download/Import overlay -->
+        <!-- Download/Import progress overlay -->
         <Grid x:Name="OverlayPanel" Visibility="Collapsed"
               Background="{ThemeResource SystemControlBackgroundAltMediumHighBrush}">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
@@ -70,12 +79,134 @@
                            HorizontalAlignment="Center" Margin="0,0,0,16" />
                 <Button x:Name="BtnDownload" Content="Download Stuttgart Region"
                         HorizontalAlignment="Center"
-                        Click="BtnDownload_Click" />
+                        Click="BtnDownload_Click"
+                        Visibility="Collapsed" />
                 <Button x:Name="BtnCancel" Content="Cancel"
                         HorizontalAlignment="Center" Margin="0,8,0,0"
                         Visibility="Collapsed"
                         Click="BtnCancel_Click" />
             </StackPanel>
+        </Grid>
+
+        <!-- Map Manager overlay -->
+        <Grid x:Name="MapManagerPanel" Visibility="Collapsed"
+              Background="{ThemeResource SystemControlBackgroundAltMediumHighBrush}">
+
+            <!-- My Maps view -->
+            <Grid x:Name="MyMapsView" Visibility="Visible">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Header -->
+                <Grid Grid.Row="0" Padding="16,12" Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
+                    <TextBlock Text="My Maps" FontSize="20" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Button Content="✕" HorizontalAlignment="Right"
+                            FontSize="16" Background="Transparent"
+                            Click="BtnCloseManager_Click" />
+                </Grid>
+
+                <!-- Downloaded maps list -->
+                <ListView x:Name="LvMyMaps" Grid.Row="1" Padding="8"
+                          SelectionMode="None">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Padding="8,10" Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}" FontSize="15"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding StatusText}" FontSize="11"
+                                               Opacity="0.6" />
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="Use" Margin="8,0,0,0"
+                                        Tag="{Binding Id}"
+                                        Click="BtnUseMap_Click"
+                                        Visibility="{Binding UseVisibility}" />
+                                <Button Grid.Column="2" Content="🗑" Margin="8,0,0,0"
+                                        FontSize="16" Tag="{Binding Id}"
+                                        Click="BtnDeleteMap_Click" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!-- Empty state / add button -->
+                <StackPanel Grid.Row="2" Padding="16,8">
+                    <TextBlock x:Name="TxtNoMaps" Text="No maps downloaded yet."
+                               Opacity="0.6" HorizontalAlignment="Center"
+                               Margin="0,0,0,8" Visibility="Collapsed" />
+                    <Button Content="＋ Add Map" HorizontalAlignment="Stretch"
+                            Click="BtnAddMap_Click" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Browse view -->
+            <Grid x:Name="BrowseView" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Header with breadcrumb -->
+                <Grid Grid.Row="0" Padding="8,12,16,12"
+                      Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="BtnBrowseBack" Content="←" FontSize="18"
+                            Background="Transparent" Margin="0,0,8,0"
+                            Click="BtnBrowseBack_Click" />
+                    <TextBlock x:Name="TxtBrowseTitle" Text="Select Region"
+                               Grid.Column="1" FontSize="16" FontWeight="SemiBold"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Button Content="✕" Grid.Column="2"
+                            FontSize="16" Background="Transparent"
+                            Click="BtnCloseManager_Click" />
+                </Grid>
+
+                <!-- Region list -->
+                <ListView x:Name="LvBrowse" Grid.Row="1" Padding="8"
+                          SelectionMode="None">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Padding="8,10" Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                           FontSize="15" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <Button Grid.Column="1" Content="⬇" FontSize="16"
+                                        Tag="{Binding Id}" Margin="8,0,0,0"
+                                        Click="BtnDownloadRegion_Click"
+                                        Visibility="{Binding DownloadVisibility}" />
+                                <Button Grid.Column="2" Content="▶" FontSize="14"
+                                        Tag="{Binding Id}" Margin="4,0,0,0"
+                                        Click="BtnDrillInto_Click"
+                                        Visibility="{Binding DrillVisibility}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!-- Refresh button -->
+                <Button Grid.Row="2" Content="↻ Refresh Catalog"
+                        HorizontalAlignment="Stretch" Margin="16,8"
+                        Click="BtnRefreshCatalog_Click" />
+            </Grid>
         </Grid>
     </Grid>
 </Page>
