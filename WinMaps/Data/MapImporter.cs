@@ -40,18 +40,34 @@ namespace WinMaps.Data
 
             long fileSize = new FileInfo(pbfPath).Length;
 
-            // ---- Single pass: buffer nodes in memory, resolve ways inline ----
-            // Phase 1 (reported as "Nodes"): collect all nodes into memory dictionary
-            // Phase 2 (reported as "Ways"): when ways arrive, resolve coords + insert
-            //
-            // PBF block order guarantees: within each PrimitiveBlock, dense nodes
-            // come before ways. But nodes referenced by a way may be in an earlier block.
-            // So we do a single pass but buffer ALL nodes first (they arrive before ways
-            // in well-formed PBF files from Geofabrik).
-
+            // ---- Pass 1: Scan ways to collect referenced node IDs ----
+            // Only decodes way node-refs (skips node lat/lon), so it's fast and lean.
+            // The resulting HashSet is much smaller than buffering all nodes.
             ReportProgress(ImportPhase.Nodes, 0, 0, 0);
 
-            var nodeBuffer = new Dictionary<long, (double lat, double lon)>();
+            var referencedNodeIds = new HashSet<long>();
+
+            using (var stream = File.OpenRead(pbfPath))
+            {
+                var parser = new OsmPbfParser();
+
+                parser.OnWay += way =>
+                {
+                    for (int i = 0; i < way.NodeRefs.Length; i++)
+                        referencedNodeIds.Add(way.NodeRefs[i]);
+                };
+
+                parser.OnProgress += (pos, total) =>
+                {
+                    double pct = total > 0 ? (double)pos / total * 50.0 : 0; // 0-50%
+                    ReportProgress(ImportPhase.Nodes, pct, 0, 0);
+                };
+
+                parser.Parse(stream, fileSize, ct);
+            }
+
+            // ---- Pass 2: Buffer only referenced nodes, resolve ways inline ----
+            var nodeBuffer = new Dictionary<long, (double lat, double lon)>(referencedNodeIds.Count);
             long nodeCount = 0;
             long wayCount = 0;
             int batchCount = 0;
@@ -67,7 +83,10 @@ namespace WinMaps.Data
 
                     parser.OnNode += node =>
                     {
-                        nodeBuffer[node.Id] = (node.Lat, node.Lon);
+                        if (referencedNodeIds.Contains(node.Id))
+                        {
+                            nodeBuffer[node.Id] = (node.Lat, node.Lon);
+                        }
                         nodeCount++;
                     };
 
@@ -77,7 +96,6 @@ namespace WinMaps.Data
                         var points = new List<(double lat, double lon)>(way.NodeRefs.Length);
                         double minLat = double.MaxValue, maxLat = double.MinValue;
                         double minLon = double.MaxValue, maxLon = double.MinValue;
-                        bool allResolved = true;
 
                         for (int i = 0; i < way.NodeRefs.Length; i++)
                         {
@@ -88,10 +106,6 @@ namespace WinMaps.Data
                                 if (coord.lat > maxLat) maxLat = coord.lat;
                                 if (coord.lon < minLon) minLon = coord.lon;
                                 if (coord.lon > maxLon) maxLon = coord.lon;
-                            }
-                            else
-                            {
-                                allResolved = false;
                             }
                         }
 
@@ -117,7 +131,7 @@ namespace WinMaps.Data
 
                     parser.OnProgress += (pos, total) =>
                     {
-                        double pct = total > 0 ? (double)pos / total * 100.0 : 0;
+                        double pct = total > 0 ? 50.0 + (double)pos / total * 50.0 : 50; // 50-100%
                         if (wayCount > 0)
                             ReportProgress(ImportPhase.Ways, pct, nodeCount, wayCount);
                         else
@@ -138,7 +152,8 @@ namespace WinMaps.Data
                 db.DisposeInsertStatement();
             }
 
-            // Free node buffer — no longer needed
+            // Free memory
+            referencedNodeIds.Clear();
             nodeBuffer.Clear();
             nodeBuffer = null;
 
