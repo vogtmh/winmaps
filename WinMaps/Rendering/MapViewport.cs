@@ -24,7 +24,7 @@ namespace WinMaps.Rendering
             // Default: Stuttgart center
             CenterLat = 48.7758;
             CenterLon = 9.1829;
-            Zoom = 14;
+            Zoom = 16;
         }
 
         /// <summary>

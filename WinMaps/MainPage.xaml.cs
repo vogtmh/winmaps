@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Windows.Devices.Geolocation;
 using Windows.Foundation;
+using Windows.Storage;
 using Windows.System.Display;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
@@ -47,6 +48,8 @@ namespace WinMaps
 
             this.Loaded += MainPage_Loaded;
             this.Unloaded += MainPage_Unloaded;
+
+            RestoreViewport();
         }
 
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -66,6 +69,7 @@ namespace WinMaps
 
         private void MainPage_Unloaded(object sender, RoutedEventArgs e)
         {
+            SaveViewport();
             _cts?.Cancel();
             _geolocator = null;
             _db?.Dispose();
@@ -87,7 +91,7 @@ namespace WinMaps
                     _renderer = new MapRenderer(_db, _viewport);
 
                     var bounds = _db.GetBounds();
-                    if (bounds.HasValue)
+                    if (bounds.HasValue && !HasSavedViewport())
                     {
                         _viewport.CenterLat = (bounds.Value.minLat + bounds.Value.maxLat) / 2.0;
                         _viewport.CenterLon = (bounds.Value.minLon + bounds.Value.maxLon) / 2.0;
@@ -461,6 +465,34 @@ namespace WinMaps
             }
 
             RedrawMap();
+        }
+
+        // ---- Viewport persistence ----
+
+        private void SaveViewport()
+        {
+            var settings = ApplicationData.Current.LocalSettings;
+            settings.Values["viewport_lat"] = _viewport.CenterLat;
+            settings.Values["viewport_lon"] = _viewport.CenterLon;
+            settings.Values["viewport_zoom"] = _viewport.Zoom;
+        }
+
+        private void RestoreViewport()
+        {
+            var settings = ApplicationData.Current.LocalSettings;
+            if (settings.Values.ContainsKey("viewport_lat") &&
+                settings.Values.ContainsKey("viewport_lon") &&
+                settings.Values.ContainsKey("viewport_zoom"))
+            {
+                _viewport.CenterLat = (double)settings.Values["viewport_lat"];
+                _viewport.CenterLon = (double)settings.Values["viewport_lon"];
+                _viewport.Zoom = (double)settings.Values["viewport_zoom"];
+            }
+        }
+
+        private bool HasSavedViewport()
+        {
+            return ApplicationData.Current.LocalSettings.Values.ContainsKey("viewport_lat");
         }
     }
 }
