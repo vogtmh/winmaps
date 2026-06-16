@@ -25,8 +25,8 @@ namespace WinMaps.Download
             new MapRegion
             {
                 Name = "Stuttgart Region (Germany)",
-                Url = "https://download.geofabrik.de/europe/germany/baden-wuerttemberg/regierungsbezirk-stuttgart-latest.osm.pbf",
-                FileName = "regierungsbezirk-stuttgart.osm.pbf"
+                Url = "https://download.geofabrik.de/europe/germany/baden-wuerttemberg/stuttgart-regbez-latest.osm.pbf",
+                FileName = "stuttgart-regbez.osm.pbf"
             },
             new MapRegion
             {
