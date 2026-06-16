@@ -236,16 +236,17 @@ namespace WinMaps.Data
 
             // Build SQL with LOD conditions pushed into WHERE clause
             // Road=0, Water=1, Park=2
+            // Area size uses (max-min) extent in degrees as a proxy for screen-space size
             string sql;
             if (zoom < 8)
             {
-                // Only motorway/trunk roads + very large areas
+                // Only motorway/trunk + very large areas
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
                             (type = 0 AND subtype IN ('motorway','trunk','motorway_link','trunk_link'))
-                            OR ((type = 1 OR type = 2) AND ((max_lat - min_lat) >= 0.05 OR (max_lon - min_lon) >= 0.05))
+                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.002)
                           )";
             }
             else if (zoom < 10)
@@ -256,29 +257,41 @@ namespace WinMaps.Data
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
                             (type = 0 AND subtype IN ('motorway','trunk','primary','motorway_link','trunk_link','primary_link'))
-                            OR ((type = 1 OR type = 2) AND ((max_lat - min_lat) >= 0.01 OR (max_lon - min_lon) >= 0.01))
+                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.0002)
                           )";
             }
             else if (zoom < 12)
             {
-                // Most roads except minor paths + medium areas
+                // Add secondary roads, skip minor paths/tracks/service; medium+ areas only
+                sql = @"SELECT type, subtype, geometry FROM ways
+                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
+                          AND max_lon >= @minLon AND min_lon <= @maxLon
+                          AND (
+                            (type = 0 AND subtype IN ('motorway','trunk','primary','secondary',
+                                'motorway_link','trunk_link','primary_link','secondary_link'))
+                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00005)
+                          )";
+            }
+            else if (zoom < 13)
+            {
+                // Add tertiary/residential, still skip footway/path/track/cycleway; smaller areas
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
                             (type = 0 AND subtype NOT IN ('footway','cycleway','path','track','service'))
-                            OR ((type = 1 OR type = 2) AND ((max_lat - min_lat) >= 0.005 OR (max_lon - min_lon) >= 0.005))
+                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00001)
                           )";
             }
             else if (zoom < 14)
             {
-                // All roads except footway/path + smaller areas
+                // All roads except footway/path/track/cycleway; small areas
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
-                            (type = 0 AND subtype NOT IN ('footway','path'))
-                            OR ((type = 1 OR type = 2) AND ((max_lat - min_lat) >= 0.001 OR (max_lon - min_lon) >= 0.001))
+                            (type = 0 AND subtype NOT IN ('footway','path','track','cycleway'))
+                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.000001)
                           )";
             }
             else
