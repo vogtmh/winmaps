@@ -906,13 +906,18 @@ namespace WinMaps
                 {
                     if (ring.Count < 3) continue;
 
+                    // Normalize longitudes so consecutive deltas stay within ±180°.
+                    // This unwraps antimeridian crossings (e.g. Russia, Asia) so Win2D
+                    // doesn't draw a line sweeping across the whole canvas.
+                    var normRing = NormalizeRingLons(ring);
+
                     using (var pb = new Microsoft.Graphics.Canvas.Geometry.CanvasPathBuilder(sender))
                     {
-                        var first = project(ring[0].Lat, ring[0].Lon);
+                        var first = project(normRing[0].Lat, normRing[0].Lon);
                         pb.BeginFigure(first.x, first.y);
-                        for (int p = 1; p < ring.Count; p++)
+                        for (int p = 1; p < normRing.Count; p++)
                         {
-                            var pt = project(ring[p].Lat, ring[p].Lon);
+                            var pt = project(normRing[p].Lat, normRing[p].Lon);
                             pb.AddLine(pt.x, pt.y);
                         }
                         pb.EndFigure(Microsoft.Graphics.Canvas.Geometry.CanvasFigureLoop.Closed);
@@ -925,6 +930,31 @@ namespace WinMaps
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Normalizes a ring's longitude sequence so that each consecutive delta stays
+        /// within [-180, +180]. Polygons that cross the antimeridian (e.g. Russia, Asia)
+        /// will have longitudes that go beyond ±180 after normalization; those out-of-range
+        /// portions are simply clipped by the canvas, which is visually correct.
+        /// </summary>
+        private static List<(double Lat, double Lon)> NormalizeRingLons(
+            List<(double Lat, double Lon)> ring)
+        {
+            if (ring.Count < 2) return ring;
+            var result = new List<(double Lat, double Lon)>(ring.Count);
+            result.Add(ring[0]);
+            double prevLon = ring[0].Lon;
+            for (int i = 1; i < ring.Count; i++)
+            {
+                double lon = ring[i].Lon;
+                double delta = lon - prevLon;
+                if (delta > 180.0) lon -= 360.0;
+                else if (delta < -180.0) lon += 360.0;
+                result.Add((ring[i].Lat, lon));
+                prevLon = lon;
+            }
+            return result;
         }
 
         private void WorldMapCanvas_PointerPressed(object sender,
