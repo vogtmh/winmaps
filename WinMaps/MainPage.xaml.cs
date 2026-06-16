@@ -874,9 +874,19 @@ namespace WinMaps
 
                     if (_worldMapGfRegions.Count == 0)
                     {
-                        // No subdivisions with geometry — fall back to browse list
-                        FallBackToBrowse(gfRegion.Id);
-                        return;
+                        // No subdivisions with geometry — show the country itself
+                        _worldMapGfRegions = null;
+                        var neCountry = _naturalEarthIndex.GetByIso(param);
+                        if (neCountry != null)
+                        {
+                            _worldMapNECountries = new List<NaturalEarthCountry> { neCountry };
+                            ComputeViewportFromNE(_worldMapNECountries);
+                        }
+                        else
+                        {
+                            FallBackToBrowse(gfRegion.Id);
+                            return;
+                        }
                     }
 
                     // Compute viewport from Geofabrik children
@@ -1328,9 +1338,17 @@ namespace WinMaps
                 }
                 else if (gfr != null)
                 {
-                    // Leaf country with no subdivisions — open browse list
-                    FallBackToBrowse(gfr.Id);
+                    // Leaf country — zoom into it on the map
+                    _worldMapStack.Push("continent:" + _worldMapContinent);
+                    ShowWorldMapLevel("country", country.IsoA2);
                 }
+            }
+            else if (_worldMapLevel == "country")
+            {
+                // Tapped the leaf country polygon — open browse list for download
+                var gfr = _geofabrikIndex.GetRegionByIso(country.IsoA2);
+                if (gfr != null)
+                    FallBackToBrowse(gfr.Id);
             }
         }
 
