@@ -94,6 +94,45 @@ namespace WinMaps
 
             RestoreViewport();
             ApplyThemeBackground();
+
+            Windows.UI.Core.SystemNavigationManager.GetForCurrentView().BackRequested += OnBackRequested;
+        }
+
+        private void OnBackRequested(object sender, Windows.UI.Core.BackRequestedEventArgs e)
+        {
+            if (ThemePanel.Visibility == Visibility.Visible)
+            {
+                ThemePanel.Visibility = Visibility.Collapsed;
+                e.Handled = true;
+            }
+            else if (MapManagerPanel.Visibility == Visibility.Visible)
+            {
+                if (BrowseView.Visibility == Visibility.Visible && _browseStack.Count > 0)
+                {
+                    // Navigate up in browse hierarchy
+                    BtnBrowseBack_Click(null, null);
+                }
+                else if (BrowseView.Visibility == Visibility.Visible && MyMapsView.Visibility == Visibility.Collapsed)
+                {
+                    // If we came from My Maps, go back to it; otherwise close
+                    var names = GetMapNames();
+                    if (names.Count > 0)
+                    {
+                        BrowseView.Visibility = Visibility.Collapsed;
+                        MyMapsView.Visibility = Visibility.Visible;
+                        RefreshMyMapsList();
+                    }
+                    else
+                    {
+                        MapManagerPanel.Visibility = Visibility.Collapsed;
+                    }
+                }
+                else
+                {
+                    MapManagerPanel.Visibility = Visibility.Collapsed;
+                }
+                e.Handled = true;
+            }
         }
 
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -113,6 +152,7 @@ namespace WinMaps
 
         private void MainPage_Unloaded(object sender, RoutedEventArgs e)
         {
+            Windows.UI.Core.SystemNavigationManager.GetForCurrentView().BackRequested -= OnBackRequested;
             SaveViewport();
             _cts?.Cancel();
             _geolocator = null;
