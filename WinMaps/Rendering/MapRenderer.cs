@@ -124,9 +124,9 @@ namespace WinMaps.Rendering
 
                 // Phase 2: Apply LOD filter and collect IDs for geometry fetch
                 var filtered = new List<(long id, int type, string subType)>();
-                foreach (var (id, type, subType, latSpan, lonSpan) in wayMeta)
+                foreach (var (id, type, subType, wayLatSpan, wayLonSpan) in wayMeta)
                 {
-                    if (!ShouldDrawAtZoom(type, subType, queryZoom, latSpan, lonSpan))
+                    if (!ShouldDrawAtZoom(type, subType, queryZoom, wayLatSpan, wayLonSpan))
                         continue;
 
                     filtered.Add((id, type, subType));
