@@ -247,8 +247,7 @@ namespace WinMaps
             string mapsPath = GetMapsFolder();
             var countryNames = GetMapNames();       // country key → display name
             var installedIds = GetInstalledRegionIds();
-
-            // Scan only the flat top-level Maps/ directory for country DBs (*.osm.db)
+            var regionCountryMap = GetRegionCountryMap();
             foreach (string dbFile in Directory.GetFiles(mapsPath, "*.osm.db"))
             {
                 string fileName = Path.GetFileName(dbFile);
@@ -268,7 +267,7 @@ namespace WinMaps
                         SetActiveMapId(countryKey);
                 }
 
-                // Restore installed_regions from this DB's regions table
+                // Restore installed_regions and region_country_map from this DB's regions table
                 try
                 {
                     var tempDb = new MapDatabase(dbFile);
@@ -280,23 +279,31 @@ namespace WinMaps
                     {
                         if (!installedIds.Contains(id))
                             installedIds.Add(id);
+                        regionCountryMap[id] = countryKey;
                     }
                 }
                 catch { }
             }
 
             SaveInstalledRegionIds(installedIds);
+            SaveRegionCountryMap(regionCountryMap);
         }
 
         // ---- Map file helpers ----
 
         /// <summary>
-        /// Extracts the country key from a Geofabrik region ID.
-        /// "europe/germany/stuttgart-regbez" → "germany"
-        /// "europe/germany" → "germany"
+        /// Returns the country key for a region ID.
+        /// Checks the stored region→country map first (works offline),
+        /// then the GeofabrikIndex parent chain if loaded,
+        /// then falls back to slash-splitting for old-format IDs.
         /// </summary>
-        private static string GetCountryKey(string regionId)
+        private string GetCountryKey(string regionId)
         {
+            var map = GetRegionCountryMap();
+            if (map.TryGetValue(regionId, out var stored)) return stored;
+            if (_geofabrikIndex != null && _geofabrikIndex.IsLoaded)
+                return _geofabrikIndex.GetCountryId(regionId);
+            // Fallback for old slash-format IDs ("europe/germany/...") — not used with current catalog
             var parts = regionId.Split('/');
             return parts.Length >= 2 ? parts[1] : parts[0];
         }
@@ -442,18 +449,56 @@ namespace WinMaps
             ApplicationData.Current.LocalSettings.Values["installed_regions"] = arr.Stringify();
         }
 
-        private void AddInstalledRegion(string regionId)
+        private void AddInstalledRegion(string regionId, string countryKey)
         {
             var ids = GetInstalledRegionIds();
             ids.Add(regionId);
             SaveInstalledRegionIds(ids);
+
+            var map = GetRegionCountryMap();
+            map[regionId] = countryKey;
+            SaveRegionCountryMap(map);
         }
 
         private void RemoveInstalledRegionsForCountry(string countryKey)
         {
             var ids = GetInstalledRegionIds();
+            var map = GetRegionCountryMap();
             ids.RemoveWhere(id => GetCountryKey(id) == countryKey);
+            foreach (var key in map.Keys.Where(k => map[k] == countryKey).ToList())
+                map.Remove(key);
             SaveInstalledRegionIds(ids);
+            SaveRegionCountryMap(map);
+        }
+
+        // region_country_map: regionId → countryKey (e.g. "stuttgart-regbez" → "germany")
+        private Dictionary<string, string> GetRegionCountryMap()
+        {
+            var result = new Dictionary<string, string>();
+            var settings = ApplicationData.Current.LocalSettings;
+            if (settings.Values.ContainsKey("region_country_map"))
+            {
+                string json = settings.Values["region_country_map"] as string;
+                if (!string.IsNullOrEmpty(json))
+                {
+                    try
+                    {
+                        var obj = Windows.Data.Json.JsonObject.Parse(json);
+                        foreach (var kv in obj)
+                            result[kv.Key] = kv.Value.GetString();
+                    }
+                    catch { }
+                }
+            }
+            return result;
+        }
+
+        private void SaveRegionCountryMap(Dictionary<string, string> map)
+        {
+            var obj = new Windows.Data.Json.JsonObject();
+            foreach (var kv in map)
+                obj[kv.Key] = Windows.Data.Json.JsonValue.CreateStringValue(kv.Value);
+            ApplicationData.Current.LocalSettings.Values["region_country_map"] = obj.Stringify();
         }
 
         // ---- Map Manager UI ----
@@ -783,6 +828,8 @@ namespace WinMaps
             if (geoRegion == null) return;
 
             _selectedRegion = MapRegion.FromGeofabrik(geoRegion);
+            // Resolve country via parent chain (IDs have no slashes in Geofabrik JSON)
+            _selectedRegion.CountryKey = _geofabrikIndex.GetCountryId(regionId);
 
             // Hide map manager, show download overlay
             MapManagerPanel.Visibility = Visibility.Collapsed;
@@ -844,7 +891,7 @@ namespace WinMaps
                 string countryDisplayName = GetCountryDisplayName(countryKey, _selectedRegion.Id);
                 SaveMapName(countryKey, countryDisplayName);
                 SetActiveMapId(countryKey);
-                AddInstalledRegion(_selectedRegion.Id);
+                AddInstalledRegion(_selectedRegion.Id, countryKey);
 
                 _renderer = new MapRenderer(_db, _viewport, _currentTheme);
 

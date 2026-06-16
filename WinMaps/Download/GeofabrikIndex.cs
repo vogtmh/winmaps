@@ -113,6 +113,21 @@ namespace WinMaps.Download
         }
 
         /// <summary>
+        /// Returns the country-level region ID for any given region by walking up the
+        /// parent chain until finding a region whose parent is a continent (no parent).
+        /// "stuttgart-regbez" → "germany", "hamburg" → "germany", "germany" → "germany"
+        /// </summary>
+        public string GetCountryId(string regionId)
+        {
+            var region = GetRegion(regionId);
+            if (region == null || region.ParentId == null) return regionId;
+            var parent = GetRegion(region.ParentId);
+            if (parent == null || parent.ParentId == null)
+                return regionId; // this region's parent is a continent → this IS the country
+            return GetCountryId(region.ParentId); // recurse up
+        }
+
+        /// <summary>
         /// Builds the breadcrumb path for a region (e.g., "Europe > Germany > Baden-Württemberg").
         /// </summary>
         public string GetBreadcrumb(string id)

@@ -22,18 +22,10 @@ namespace WinMaps.Download
         public string FileName;
 
         /// <summary>
-        /// Extracts the country key from the Geofabrik region ID.
-        /// "europe/germany/stuttgart-regbez" → "germany"
-        /// "europe/germany" → "germany"
+        /// Country key (e.g. "germany") — set from the GeofabrikIndex parent chain
+        /// at download time. Must be assigned before calling GetDatabasePath.
         /// </summary>
-        public string CountryKey
-        {
-            get
-            {
-                var parts = Id.Split('/');
-                return parts.Length >= 2 ? parts[1] : parts[0];
-            }
-        }
+        public string CountryKey { get; set; }
 
         public static MapRegion FromGeofabrik(GeofabrikRegion geo)
         {
