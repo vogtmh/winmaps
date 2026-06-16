@@ -110,6 +110,7 @@
     <Compile Include="Pbf\PbfReader.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Rendering\MapRenderer.cs" />
+    <Compile Include="Rendering\MapTheme.cs" />
     <Compile Include="Rendering\MapViewport.cs" />
   </ItemGroup>
   <ItemGroup>

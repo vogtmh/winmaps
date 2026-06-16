@@ -37,6 +37,16 @@ namespace WinMaps
         public Visibility DrillVisibility { get; set; }
     }
 
+    // View model for Theme list
+    internal class ThemeListItem
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string ActiveMarker { get; set; }
+        public Windows.UI.Color PreviewColor { get; set; }
+        public Windows.UI.Color PreviewRoadColor { get; set; }
+    }
+
     public sealed partial class MainPage : Page
     {
         private MapViewport _viewport;
@@ -65,6 +75,9 @@ namespace WinMaps
         private GeofabrikIndex _geofabrikIndex;
         private Stack<string> _browseStack; // parent IDs for back navigation
 
+        // Theme
+        private MapTheme _currentTheme;
+
         public MainPage()
         {
             this.InitializeComponent();
@@ -73,12 +86,14 @@ namespace WinMaps
             _cts = new CancellationTokenSource();
             _geofabrikIndex = new GeofabrikIndex();
             _browseStack = new Stack<string>();
+            _currentTheme = LoadSavedTheme();
 
             this.Loaded += MainPage_Loaded;
             this.Unloaded += MainPage_Unloaded;
             Application.Current.Suspending += (s, args) => SaveViewport();
 
             RestoreViewport();
+            ApplyThemeBackground();
         }
 
         private async void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -126,7 +141,7 @@ namespace WinMaps
                         await _db.OpenAsync();
                         if (_db.HasData())
                         {
-                            _renderer = new MapRenderer(_db, _viewport);
+                            _renderer = new MapRenderer(_db, _viewport, _currentTheme);
 
                             var bounds = _db.GetBounds();
                             if (bounds.HasValue && !HasSavedViewport())
@@ -371,7 +386,7 @@ namespace WinMaps
             _db = new MapDatabase(dbPath);
             await _db.OpenAsync();
 
-            _renderer = new MapRenderer(_db, _viewport);
+            _renderer = new MapRenderer(_db, _viewport, _currentTheme);
             SetActiveMapId(mapId);
 
             // Center on new map bounds
@@ -655,7 +670,7 @@ namespace WinMaps
                 SaveMapName(_selectedRegion.Id, _selectedRegion.Name);
                 SetActiveMapId(_selectedRegion.Id);
 
-                _renderer = new MapRenderer(_db, _viewport);
+                _renderer = new MapRenderer(_db, _viewport, _currentTheme);
 
                 var bounds = _db.GetBounds();
                 if (bounds.HasValue)
@@ -776,6 +791,80 @@ namespace WinMaps
                         break;
                 }
             });
+        }
+
+        // ---- Theme Selector ----
+
+        private void BtnThemeSelector_Click(object sender, RoutedEventArgs e)
+        {
+            ThemePanel.Visibility = Visibility.Visible;
+            RefreshThemeList();
+        }
+
+        private void BtnCloseTheme_Click(object sender, RoutedEventArgs e)
+        {
+            ThemePanel.Visibility = Visibility.Collapsed;
+        }
+
+        private void RefreshThemeList()
+        {
+            var items = new List<ThemeListItem>();
+            foreach (var theme in MapTheme.AllThemes)
+            {
+                items.Add(new ThemeListItem
+                {
+                    Id = theme.Id,
+                    Name = theme.Name,
+                    ActiveMarker = theme.Id == _currentTheme.Id ? "● Active" : "",
+                    PreviewColor = theme.Background,
+                    PreviewRoadColor = theme.GetRoadColor("motorway")
+                });
+            }
+            LvThemes.ItemsSource = items;
+            LvThemes.ItemClick -= LvThemes_ItemClick;
+            LvThemes.ItemClick += LvThemes_ItemClick;
+            LvThemes.IsItemClickEnabled = true;
+        }
+
+        private void LvThemes_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            var item = e.ClickedItem as ThemeListItem;
+            if (item == null) return;
+
+            _currentTheme = MapTheme.GetById(item.Id);
+            SaveTheme(_currentTheme.Id);
+            ApplyThemeBackground();
+
+            if (_renderer != null)
+            {
+                _renderer.Theme = _currentTheme;
+                _renderer.InvalidateCache();
+            }
+
+            RefreshThemeList();
+            ThemePanel.Visibility = Visibility.Collapsed;
+            RedrawMap();
+        }
+
+        private MapTheme LoadSavedTheme()
+        {
+            var settings = ApplicationData.Current.LocalSettings;
+            if (settings.Values.ContainsKey("theme_id"))
+            {
+                string id = settings.Values["theme_id"] as string;
+                return MapTheme.GetById(id);
+            }
+            return MapTheme.Light;
+        }
+
+        private void SaveTheme(string themeId)
+        {
+            ApplicationData.Current.LocalSettings.Values["theme_id"] = themeId;
+        }
+
+        private void ApplyThemeBackground()
+        {
+            MapCanvas.ClearColor = _currentTheme.Background;
         }
 
         // ---- Map Rendering ----

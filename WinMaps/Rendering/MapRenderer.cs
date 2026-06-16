@@ -12,6 +12,13 @@ namespace WinMaps.Rendering
     {
         private readonly MapDatabase _db;
         private readonly MapViewport _viewport;
+        private MapTheme _theme;
+
+        public MapTheme Theme
+        {
+            get { return _theme; }
+            set { _theme = value; }
+        }
 
         // Cached way geometries for the current viewport
         private List<CachedWay> _cachedWays;
@@ -26,10 +33,11 @@ namespace WinMaps.Rendering
         private bool _pendingReload;
         private readonly CanvasStrokeStyle _roundStroke;
 
-        public MapRenderer(MapDatabase db, MapViewport viewport)
+        public MapRenderer(MapDatabase db, MapViewport viewport, MapTheme theme = null)
         {
             _db = db;
             _viewport = viewport;
+            _theme = theme ?? MapTheme.Light;
             _roundStroke = new CanvasStrokeStyle
             {
                 LineJoin = CanvasLineJoin.Round,
@@ -51,13 +59,13 @@ namespace WinMaps.Rendering
             foreach (var way in _cachedWays)
             {
                 if (way.Type == (int)Pbf.OsmElementType.Park)
-                    DrawArea(ds, rc, way, GetParkColor(way.SubType));
+                    DrawArea(ds, rc, way, _theme.GetParkColor(way.SubType));
             }
 
             foreach (var way in _cachedWays)
             {
                 if (way.Type == (int)Pbf.OsmElementType.Water)
-                    DrawArea(ds, rc, way, GetWaterColor(way.SubType));
+                    DrawArea(ds, rc, way, _theme.WaterColor);
             }
 
             // Road outlines (drawn first, thicker, darker)
@@ -69,7 +77,7 @@ namespace WinMaps.Rendering
                     float width = GetRoadWidth(way.SubType, _viewport.Zoom);
                     if (width >= 2)
                     {
-                        DrawPolyline(ds, rc, way.Points, GetRoadOutlineColor(way.SubType), width + 2);
+                        DrawPolyline(ds, rc, way.Points, _theme.GetRoadOutlineColor(way.SubType), width + 2);
                     }
                 }
             }
@@ -79,7 +87,7 @@ namespace WinMaps.Rendering
             {
                 if (way.Type != (int)Pbf.OsmElementType.Road) continue;
                 float width = GetRoadWidth(way.SubType, _viewport.Zoom);
-                DrawPolyline(ds, rc, way.Points, GetRoadColor(way.SubType), width);
+                DrawPolyline(ds, rc, way.Points, _theme.GetRoadColor(way.SubType), width);
             }
         }
 
@@ -249,14 +257,14 @@ namespace WinMaps.Rendering
                 float radiusPixels = (float)(accuracy / metersPerPixel);
                 if (radiusPixels > 3 && radiusPixels < 500)
                 {
-                    ds.FillCircle(x, y, radiusPixels, Color.FromArgb(40, 0, 120, 255));
-                    ds.DrawCircle(x, y, radiusPixels, Color.FromArgb(80, 0, 120, 255), 1);
+                    ds.FillCircle(x, y, radiusPixels, _theme.GpsAccuracyFill);
+                    ds.DrawCircle(x, y, radiusPixels, _theme.GpsAccuracyStroke, 1);
                 }
             }
 
-            // White halo + blue dot
-            ds.FillCircle(x, y, 8, Colors.White);
-            ds.FillCircle(x, y, 6, Color.FromArgb(255, 0, 120, 255));
+            // Halo + dot
+            ds.FillCircle(x, y, 8, _theme.GpsDotHalo);
+            ds.FillCircle(x, y, 6, _theme.GpsDotFill);
         }
 
         // ---- LOD filtering ----
@@ -297,63 +305,7 @@ namespace WinMaps.Rendering
             return true;
         }
 
-        // ---- Style tables ----
-
-        private Color GetRoadColor(string subType)
-        {
-            switch (subType)
-            {
-                case "motorway":
-                case "motorway_link":
-                    return Color.FromArgb(255, 233, 144, 160);
-                case "trunk":
-                case "trunk_link":
-                    return Color.FromArgb(255, 249, 178, 156);
-                case "primary":
-                case "primary_link":
-                    return Color.FromArgb(255, 252, 214, 164);
-                case "secondary":
-                case "secondary_link":
-                    return Color.FromArgb(255, 246, 250, 187);
-                case "tertiary":
-                case "tertiary_link":
-                case "residential":
-                case "living_street":
-                case "unclassified":
-                case "service":
-                    return Colors.White;
-                case "pedestrian":
-                    return Color.FromArgb(255, 221, 221, 238);
-                case "footway":
-                case "path":
-                    return Color.FromArgb(255, 250, 128, 114);
-                case "cycleway":
-                    return Color.FromArgb(255, 0, 68, 204);
-                case "track":
-                    return Color.FromArgb(255, 177, 140, 75);
-                default:
-                    return Color.FromArgb(255, 200, 200, 200);
-            }
-        }
-
-        private Color GetRoadOutlineColor(string subType)
-        {
-            switch (subType)
-            {
-                case "motorway":
-                case "motorway_link":
-                    return Color.FromArgb(255, 196, 80, 108);
-                case "trunk":
-                case "trunk_link":
-                    return Color.FromArgb(255, 200, 130, 100);
-                case "primary":
-                case "primary_link":
-                    return Color.FromArgb(255, 200, 170, 110);
-                default:
-                    return Color.FromArgb(255, 190, 190, 190);
-            }
-        }
-
+        // ---- Style: road widths (kept here since they're zoom-dependent) ----
         private float GetRoadWidth(string subType, double zoom)
         {
             float baseWidth;
@@ -396,30 +348,6 @@ namespace WinMaps.Rendering
             if (zoom >= 12) return baseWidth * 1.2f;
             if (zoom >= 10) return baseWidth * 0.8f;
             return Math.Max(baseWidth * 0.5f, 1.0f);
-        }
-
-        private Color GetWaterColor(string subType)
-        {
-            return Color.FromArgb(255, 170, 211, 223);
-        }
-
-        private Color GetParkColor(string subType)
-        {
-            switch (subType)
-            {
-                case "forest":
-                case "wood":
-                    return Color.FromArgb(255, 173, 209, 158);
-                case "grass":
-                case "meadow":
-                case "farmland":
-                    return Color.FromArgb(255, 205, 235, 176);
-                case "park":
-                case "garden":
-                    return Color.FromArgb(255, 200, 250, 204);
-                default:
-                    return Color.FromArgb(255, 195, 225, 178);
-            }
         }
 
         private class CachedWay
