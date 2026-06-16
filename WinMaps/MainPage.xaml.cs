@@ -1036,7 +1036,7 @@ namespace WinMaps
                     // Color by continent
                     var cs = continentStatus != null && continentStatus.ContainsKey(country.Continent)
                         ? continentStatus[country.Continent]
-                        : (0, 0);
+                        : (total: 0, installed: 0);
                     fill = ChooseMapColor(cs.total, cs.installed);
                 }
                 else
