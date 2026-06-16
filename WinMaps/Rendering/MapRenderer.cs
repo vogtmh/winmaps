@@ -26,9 +26,6 @@ namespace WinMaps.Rendering
         private double _cacheZoom;
         private const double CacheMarginFactor = 0.5;
 
-        // Win2D can handle far more than XAML shapes
-        private const int MaxWaysPerFrame = 10000;
-
         private bool _isLoading;
         private bool _pendingReload;
         private readonly CanvasStrokeStyle _roundStroke;
@@ -143,9 +140,6 @@ namespace WinMaps.Rendering
                         continue;
 
                     filtered.Add((id, type, subType));
-
-                    if (filtered.Count >= MaxWaysPerFrame)
-                        break;
                 }
 
                 if (filtered.Count == 0)
