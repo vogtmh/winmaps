@@ -253,6 +253,48 @@ namespace WinMaps.Data
         }
 
         /// <summary>
+        /// Batch-fetches geometry for a list of way IDs. Returns a dictionary keyed by way ID.
+        /// </summary>
+        public Dictionary<long, List<(double lat, double lon)>> GetWayGeometryBatch(List<long> ids)
+        {
+            var result = new Dictionary<long, List<(double, double)>>(ids.Count);
+            if (ids.Count == 0) return result;
+
+            // Process in chunks to avoid huge SQL statements
+            const int chunkSize = 500;
+            for (int start = 0; start < ids.Count; start += chunkSize)
+            {
+                int count = Math.Min(chunkSize, ids.Count - start);
+
+                using (var cmd = _connection.CreateCommand())
+                {
+                    var paramNames = new string[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        paramNames[i] = "@id" + i;
+                        cmd.Parameters.AddWithValue(paramNames[i], ids[start + i]);
+                    }
+                    cmd.CommandText = "SELECT id, geometry FROM ways WHERE id IN (" +
+                        string.Join(",", paramNames) + ")";
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            long id = reader.GetInt64(0);
+                            byte[] blob = (byte[])reader["geometry"];
+                            var points = new List<(double, double)>();
+                            DecodeGeometry(blob, points);
+                            result[id] = points;
+                        }
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Gets the overall bounding box of all data in the database.
         /// </summary>
         public (double minLat, double maxLat, double minLon, double maxLon)? GetBounds()

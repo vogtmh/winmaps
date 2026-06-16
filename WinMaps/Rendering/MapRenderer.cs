@@ -119,28 +119,45 @@ namespace WinMaps.Rendering
 
             var newCachedWays = await Task.Run(() =>
             {
-                var ways = _db.QueryWaysWithGeometry(queryMinLat, queryMaxLat, queryMinLon, queryMaxLon, -1);
-                var result = new List<CachedWay>();
-                int count = 0;
+                // Phase 1: Fast metadata query — no geometry blobs read from disk
+                var wayMeta = _db.QueryWaysInBounds(queryMinLat, queryMaxLat, queryMinLon, queryMaxLon);
 
-                foreach (var (type, subType, points) in ways)
+                // Phase 2: Apply LOD filter and collect IDs for geometry fetch
+                var filtered = new List<(long id, int type, string subType)>();
+                foreach (var (id, type, subType) in wayMeta)
                 {
                     if (!ShouldDrawAtZoom(type, subType, queryZoom))
                         continue;
 
-                    if (count >= MaxWaysPerFrame)
+                    filtered.Add((id, type, subType));
+
+                    if (filtered.Count >= MaxWaysPerFrame)
                         break;
+                }
 
-                    if (points.Count < 2)
-                        continue;
+                if (filtered.Count == 0)
+                    return new List<CachedWay>();
 
-                    result.Add(new CachedWay
+                // Phase 3: Batch-fetch geometry only for ways we'll actually render
+                var idsToFetch = new List<long>(filtered.Count);
+                foreach (var (id, type, subType) in filtered)
+                    idsToFetch.Add(id);
+
+                var geometries = _db.GetWayGeometryBatch(idsToFetch);
+
+                // Phase 4: Build cached way list
+                var result = new List<CachedWay>(filtered.Count);
+                foreach (var (id, type, subType) in filtered)
+                {
+                    if (geometries.TryGetValue(id, out var points) && points.Count >= 2)
                     {
-                        Type = type,
-                        SubType = subType,
-                        Points = points
-                    });
-                    count++;
+                        result.Add(new CachedWay
+                        {
+                            Type = type,
+                            SubType = subType,
+                            Points = points
+                        });
+                    }
                 }
 
                 return result;
