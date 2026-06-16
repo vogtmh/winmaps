@@ -70,9 +70,15 @@ namespace WinMaps.Rendering
             DrawBatchedAreas(ds, rc, (int)Pbf.OsmElementType.Park,
                 w => _theme.GetParkColor(w.SubType));
 
-            // Water: single color
+            // Water bodies (filled areas) — only closed polygons like lakes, ponds
             DrawBatchedAreas(ds, rc, (int)Pbf.OsmElementType.Water,
-                w => _theme.WaterColor);
+                w => _theme.WaterColor,
+                w => !IsLinearWaterway(w.SubType));
+
+            // Linear waterways (rivers, streams) — drawn as lines
+            DrawBatchedLines(ds, rc, (int)Pbf.OsmElementType.Water,
+                w => _theme.WaterColor,
+                w => GetWaterwayWidth(w.SubType, _viewport.Zoom));
 
             // Road outlines (only at zoom >= 13)
             if (_viewport.Zoom >= 13)
@@ -95,7 +101,7 @@ namespace WinMaps.Rendering
         }
 
         private void DrawBatchedAreas(CanvasDrawingSession ds, ICanvasResourceCreator rc,
-            int typeFilter, Func<CachedWay, Color> colorFunc)
+            int typeFilter, Func<CachedWay, Color> colorFunc, Func<CachedWay, bool> filter = null)
         {
             // Group by color, build one combined geometry per color
             var batches = new Dictionary<uint, List<CachedWay>>();
@@ -103,6 +109,7 @@ namespace WinMaps.Rendering
             foreach (var way in _cachedWays)
             {
                 if (way.Type != typeFilter || way.MercX.Length < 3) continue;
+                if (filter != null && !filter(way)) continue;
                 uint colorKey = ColorToUint(colorFunc(way));
                 if (!batches.TryGetValue(colorKey, out var list))
                 {
@@ -391,6 +398,37 @@ namespace WinMaps.Rendering
                     baseWidth = 1.5f; break;
                 default:
                     baseWidth = 1.0f; break;
+            }
+
+            if (zoom >= 16) return baseWidth * 2.5f;
+            if (zoom >= 14) return baseWidth * 1.8f;
+            if (zoom >= 12) return baseWidth * 1.2f;
+            if (zoom >= 10) return baseWidth * 0.8f;
+            return Math.Max(baseWidth * 0.5f, 1.0f);
+        }
+
+        private static bool IsLinearWaterway(string subType)
+        {
+            switch (subType)
+            {
+                case "river": case "stream": case "canal":
+                case "ditch": case "drain": case "brook":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static float GetWaterwayWidth(string subType, double zoom)
+        {
+            float baseWidth;
+            switch (subType)
+            {
+                case "river": baseWidth = 3.0f; break;
+                case "canal": baseWidth = 2.5f; break;
+                case "stream": case "brook": baseWidth = 1.5f; break;
+                case "ditch": case "drain": baseWidth = 0.8f; break;
+                default: baseWidth = 1.0f; break;
             }
 
             if (zoom >= 16) return baseWidth * 2.5f;
