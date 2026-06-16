@@ -101,6 +101,7 @@
     </Compile>
     <Compile Include="Data\MapDatabase.cs" />
     <Compile Include="Data\MapImporter.cs" />
+    <Compile Include="Download\GeofabrikIndex.cs" />
     <Compile Include="Download\MapDownloadManager.cs" />
     <Compile Include="MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>
