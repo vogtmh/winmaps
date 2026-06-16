@@ -974,15 +974,29 @@ namespace WinMaps
             if (latSpan <= 0 || lonSpan <= 0) return;
 
             float padding = 16f;
-            float drawW = W - 2 * padding;
-            // Maintain aspect ratio: compute height from width based on lat/lon ratio
-            float drawH = drawW * (float)(latSpan / lonSpan);
-            float offsetY = padding + (H - 2 * padding - drawH) / 2f;
-            if (offsetY < padding) offsetY = padding;
+            float availW = W - 2 * padding;
+            float availH = H - 2 * padding;
+            // Fit-to-contain: use whichever dimension constrains first
+            float aspect = (float)(latSpan / lonSpan);
+            float drawW, drawH;
+            if (availW * aspect <= availH)
+            {
+                // Width-constrained
+                drawW = availW;
+                drawH = availW * aspect;
+            }
+            else
+            {
+                // Height-constrained
+                drawH = availH;
+                drawW = availH / aspect;
+            }
+            float offsetX = padding + (availW - drawW) / 2f;
+            float offsetY = padding + (availH - drawH) / 2f;
 
             Func<double, double, (float x, float y)> project = (lat, lon) =>
             {
-                float x = padding + (float)((lon - minLon) / lonSpan * drawW);
+                float x = offsetX + (float)((lon - minLon) / lonSpan * drawW);
                 float y = offsetY + (float)((maxLat - lat) / latSpan * drawH);
                 return (x, y);
             };
@@ -1220,13 +1234,25 @@ namespace WinMaps
             double latSpan = maxLat - minLat;
             double lonSpan = maxLon - minLon;
             float padding = 16f;
-            float drawW = W - 2 * padding;
-            float drawH = drawW * (float)(latSpan / lonSpan);
-            float offsetY = padding + (H - 2 * padding - drawH) / 2f;
-            if (offsetY < padding) offsetY = padding;
+            float availW = W - 2 * padding;
+            float availH = H - 2 * padding;
+            float aspect = (float)(latSpan / lonSpan);
+            float drawW, drawH;
+            if (availW * aspect <= availH)
+            {
+                drawW = availW;
+                drawH = availW * aspect;
+            }
+            else
+            {
+                drawH = availH;
+                drawW = availH / aspect;
+            }
+            float offsetX = padding + (availW - drawW) / 2f;
+            float offsetY = padding + (availH - drawH) / 2f;
 
             // Unproject tap to lat/lon
-            double tapLon = minLon + ((pt.X - padding) / drawW) * lonSpan;
+            double tapLon = minLon + ((pt.X - offsetX) / drawW) * lonSpan;
             double tapLat = maxLat - ((pt.Y - offsetY) / drawH) * latSpan;
 
             if (_worldMapLevel == "country" && _worldMapGfRegions != null)
