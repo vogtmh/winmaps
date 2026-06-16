@@ -397,7 +397,7 @@ namespace WinMaps.Pbf
             var kvValues = new List<long>();
             if (kvData != null && OnPoi != null)
             {
-                PbfReader.ReadPackedVarInts(kvData, kvOff, kvLen, v => kvValues.Add(v));
+                PbfReader.ReadPackedVarInts(kvData, kvOff, kvLen, v => kvValues.Add((long)v));
             }
             int kvPos = 0;
 
