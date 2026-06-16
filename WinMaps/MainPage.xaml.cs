@@ -738,23 +738,18 @@ namespace WinMaps
                 ? _geofabrikIndex.GetRoots()
                 : _geofabrikIndex.GetChildren(parentId);
 
-            var downloadedNames = GetMapNames();   // country key → country name
-            var installedIds = GetInstalledRegionIds();
             var items = new List<BrowseRegionItem>();
 
             foreach (var region in children)
             {
                 bool isContinent = _geofabrikIndex.IsContinent(region.Id);
                 bool hasChildren = _geofabrikIndex.HasChildren(region.Id);
-                // Installed if this exact region or its country is recorded
-                bool alreadyDownloaded = installedIds.Contains(region.Id) ||
-                    downloadedNames.ContainsKey(GetCountryKey(region.Id));
 
                 items.Add(new BrowseRegionItem
                 {
                     Id = region.Id,
-                    Name = alreadyDownloaded ? region.Name + " ✓" : region.Name,
-                    DownloadVisibility = ((isContinent && hasChildren) || alreadyDownloaded) ? Visibility.Collapsed : Visibility.Visible,
+                    Name = region.Name,
+                    DownloadVisibility = (isContinent && hasChildren) ? Visibility.Collapsed : Visibility.Visible,
                     DrillVisibility = hasChildren ? Visibility.Visible : Visibility.Collapsed
                 });
             }
@@ -830,6 +825,21 @@ namespace WinMaps
             _selectedRegion = MapRegion.FromGeofabrik(geoRegion);
             // Resolve country via parent chain (IDs have no slashes in Geofabrik JSON)
             _selectedRegion.CountryKey = _geofabrikIndex.GetCountryId(regionId);
+
+            // If this exact region is already installed, ask before re-downloading
+            var installedIds = GetInstalledRegionIds();
+            if (installedIds.Contains(regionId))
+            {
+                var dialog = new MessageDialog(
+                    $"\"{geoRegion.Name}\" is already installed. Download and re-import it?",
+                    "Already Downloaded");
+                dialog.Commands.Add(new UICommand("Re-download"));
+                dialog.Commands.Add(new UICommand("Cancel"));
+                dialog.DefaultCommandIndex = 1;
+                dialog.CancelCommandIndex = 1;
+                var result = await dialog.ShowAsync();
+                if (result.Label != "Re-download") return;
+            }
 
             // Hide map manager, show download overlay
             MapManagerPanel.Visibility = Visibility.Collapsed;
