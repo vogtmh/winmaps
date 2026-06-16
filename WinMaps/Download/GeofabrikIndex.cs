@@ -145,21 +145,24 @@ namespace WinMaps.Download
                 string id = props.GetNamedString("id", "");
                 string name = props.GetNamedString("name", "");
 
-                // Get parent (may not exist)
+                // Get parent (may not exist, or may be JSON null)
                 string parentId = null;
-                if (props.ContainsKey("parent"))
+                if (props.ContainsKey("parent") &&
+                    props.GetNamedValue("parent").ValueType == JsonValueType.String)
                 {
-                    parentId = props.GetNamedString("parent", null);
+                    parentId = props.GetNamedString("parent");
                 }
 
                 // Get PBF URL (skip entries without it)
                 string pbfUrl = null;
-                if (props.ContainsKey("urls"))
+                if (props.ContainsKey("urls") &&
+                    props.GetNamedValue("urls").ValueType == JsonValueType.Object)
                 {
                     var urls = props.GetNamedObject("urls");
-                    if (urls.ContainsKey("pbf"))
+                    if (urls.ContainsKey("pbf") &&
+                        urls.GetNamedValue("pbf").ValueType == JsonValueType.String)
                     {
-                        pbfUrl = urls.GetNamedString("pbf", null);
+                        pbfUrl = urls.GetNamedString("pbf");
                     }
                 }
 
