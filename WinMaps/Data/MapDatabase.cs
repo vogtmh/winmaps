@@ -79,21 +79,25 @@ namespace WinMaps.Data
         /// <summary>Returns true if the given Geofabrik region ID is already recorded in this DB.</summary>
         public bool HasRegion(string regionId)
         {
-            using var cmd = _connection.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(*) FROM regions WHERE id = @id";
-            cmd.Parameters.AddWithValue("@id", regionId);
-            return (long)cmd.ExecuteScalar() > 0;
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "SELECT COUNT(*) FROM regions WHERE id = @id";
+                cmd.Parameters.AddWithValue("@id", regionId);
+                return (long)cmd.ExecuteScalar() > 0;
+            }
         }
 
         /// <summary>Records a successfully-imported region in the regions table.</summary>
         public void InsertRegion(string regionId, string name)
         {
-            using var cmd = _connection.CreateCommand();
-            cmd.CommandText = "INSERT OR REPLACE INTO regions(id, name, import_date) VALUES(@id, @name, @date)";
-            cmd.Parameters.AddWithValue("@id", regionId);
-            cmd.Parameters.AddWithValue("@name", name);
-            cmd.Parameters.AddWithValue("@date", DateTime.UtcNow.ToString("O"));
-            cmd.ExecuteNonQuery();
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "INSERT OR REPLACE INTO regions(id, name, import_date) VALUES(@id, @name, @date)";
+                cmd.Parameters.AddWithValue("@id", regionId);
+                cmd.Parameters.AddWithValue("@name", name);
+                cmd.Parameters.AddWithValue("@date", DateTime.UtcNow.ToString("O"));
+                cmd.ExecuteNonQuery();
+            }
         }
 
         /// <summary>Returns all regions recorded in this country DB, sorted by name.</summary>
@@ -102,11 +106,15 @@ namespace WinMaps.Data
             var result = new List<(string, string)>();
             try
             {
-                using var cmd = _connection.CreateCommand();
-                cmd.CommandText = "SELECT id, name FROM regions ORDER BY name";
-                using var reader = cmd.ExecuteReader();
-                while (reader.Read())
-                    result.Add((reader.GetString(0), reader.GetString(1)));
+                using (var cmd = _connection.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT id, name FROM regions ORDER BY name";
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                            result.Add((reader.GetString(0), reader.GetString(1)));
+                    }
+                }
             }
             catch { /* regions table may not exist in old DBs */ }
             return result;
