@@ -191,21 +191,21 @@
                         <DataTemplate>
                             <Grid Padding="8,10" Margin="0,2">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                <Button Grid.Column="0" Content="▶" FontSize="14"
+                                        Tag="{Binding Id}" Margin="0,0,8,0"
+                                        Click="BtnDrillInto_Click"
+                                        Visibility="{Binding DrillVisibility}" />
+                                <TextBlock Grid.Column="1" Text="{Binding Name}"
                                            FontSize="15" VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" />
-                                <Button Grid.Column="1" Content="⬇" FontSize="16"
+                                <Button Grid.Column="2" Content="⬇" FontSize="16"
                                         Tag="{Binding Id}" Margin="8,0,0,0"
                                         Click="BtnDownloadRegion_Click"
                                         Visibility="{Binding DownloadVisibility}" />
-                                <Button Grid.Column="2" Content="▶" FontSize="14"
-                                        Tag="{Binding Id}" Margin="4,0,0,0"
-                                        Click="BtnDrillInto_Click"
-                                        Visibility="{Binding DrillVisibility}" />
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
