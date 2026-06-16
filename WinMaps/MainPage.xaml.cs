@@ -856,9 +856,9 @@ namespace WinMaps
             float W = (float)sender.ActualWidth;
             float H = (float)sender.ActualHeight;
 
-            // Fill background
+            // Fill background (ocean)
             ds.FillRectangle(0, 0, W, H,
-                Windows.UI.Color.FromArgb(255, 30, 30, 40));
+                Windows.UI.Color.FromArgb(255, 30, 40, 58));
 
             if (_worldMapRegions == null || _worldMapRegions.Count == 0) return;
 
@@ -881,7 +881,17 @@ namespace WinMaps
 
             var installedIds = GetInstalledRegionIds();
 
-            foreach (var region in _worldMapRegions)
+            // Sort regions by approximate area (largest first) so smaller regions
+            // are drawn on top and aren't hidden by overlapping neighbours.
+            var sorted = new List<GeofabrikRegion>(_worldMapRegions);
+            sorted.Sort((a, b) =>
+            {
+                double areaA = ComputeRingArea(a.Geometry);
+                double areaB = ComputeRingArea(b.Geometry);
+                return areaB.CompareTo(areaA); // largest first
+            });
+
+            foreach (var region in sorted)
             {
                 if (region.Geometry == null) continue;
 
@@ -894,13 +904,13 @@ namespace WinMaps
 
                 Windows.UI.Color fill;
                 if (total == 0 || installed == 0)
-                    fill = Windows.UI.Color.FromArgb(180, 70, 90, 120);   // grey-blue — none
+                    fill = Windows.UI.Color.FromArgb(255, 58, 76, 100);   // grey-blue — none
                 else if (installed == total)
-                    fill = Windows.UI.Color.FromArgb(200, 60, 160, 80);   // green — complete
+                    fill = Windows.UI.Color.FromArgb(255, 50, 140, 70);   // green — complete
                 else
-                    fill = Windows.UI.Color.FromArgb(200, 200, 130, 40);  // orange — partial
+                    fill = Windows.UI.Color.FromArgb(255, 190, 125, 35);  // orange — partial
 
-                var stroke = Windows.UI.Color.FromArgb(255, 200, 210, 230);
+                var stroke = Windows.UI.Color.FromArgb(255, 120, 140, 160);
 
                 foreach (var ring in region.Geometry)
                 {
@@ -925,11 +935,81 @@ namespace WinMaps
                         using (var geo = Microsoft.Graphics.Canvas.Geometry.CanvasGeometry.CreatePath(pb))
                         {
                             ds.FillGeometry(geo, fill);
-                            ds.DrawGeometry(geo, stroke, 0.5f);
+                            ds.DrawGeometry(geo, stroke, 1f);
                         }
                     }
                 }
+
+                // Draw region name label at centroid
+                var centroid = ComputeGeometryCentroid(region.Geometry, minLon, maxLon);
+                var cp = project(centroid.lat, centroid.lon);
+                // Only draw label if centroid is within canvas bounds
+                if (cp.x > 0 && cp.x < W && cp.y > 0 && cp.y < H)
+                {
+                    using (var fmt = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat())
+                    {
+                        fmt.FontSize = Math.Max(11f, Math.Min(16f, drawW / 50f));
+                        fmt.HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Center;
+                        fmt.VerticalAlignment = Microsoft.Graphics.Canvas.Text.CanvasVerticalAlignment.Center;
+                        float tw = 120, th = 30;
+                        ds.DrawText(region.Name, cp.x - tw / 2, cp.y - th / 2, tw, th,
+                            Windows.UI.Colors.White, fmt);
+                    }
+                }
             }
+        }
+
+        /// <summary>
+        /// Approximates the geographic area of all rings in a geometry
+        /// using the bounding-box area of each ring (for sort ordering only).
+        /// </summary>
+        private static double ComputeRingArea(List<List<(double Lat, double Lon)>> geometry)
+        {
+            if (geometry == null) return 0;
+            double area = 0;
+            foreach (var ring in geometry)
+            {
+                if (ring.Count < 3) continue;
+                double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+                foreach (var p in ring)
+                {
+                    if (p.Lat < minLat) minLat = p.Lat;
+                    if (p.Lat > maxLat) maxLat = p.Lat;
+                    if (p.Lon < minLon) minLon = p.Lon;
+                    if (p.Lon > maxLon) maxLon = p.Lon;
+                }
+                area += (maxLat - minLat) * (maxLon - minLon);
+            }
+            return area;
+        }
+
+        /// <summary>
+        /// Computes the visual centroid of a geometry for label placement.
+        /// Uses the average of all ring points. For antimeridian-crossing polygons
+        /// the longitudes are normalized first.
+        /// </summary>
+        private static (double lat, double lon) ComputeGeometryCentroid(
+            List<List<(double Lat, double Lon)>> geometry, double vpMinLon, double vpMaxLon)
+        {
+            double sumLat = 0, sumLon = 0;
+            int count = 0;
+            foreach (var ring in geometry)
+            {
+                var norm = NormalizeRingLons(ring);
+                foreach (var p in norm)
+                {
+                    sumLat += p.Lat;
+                    sumLon += p.Lon;
+                    count++;
+                }
+            }
+            if (count == 0) return (0, 0);
+            double avgLon = sumLon / count;
+            // Wrap back into viewport range
+            double vpCenter = (vpMinLon + vpMaxLon) / 2.0;
+            while (avgLon > vpCenter + 180) avgLon -= 360;
+            while (avgLon < vpCenter - 180) avgLon += 360;
+            return (sumLat / count, avgLon);
         }
 
         /// <summary>
