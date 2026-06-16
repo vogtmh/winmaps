@@ -17,6 +17,17 @@ namespace WinMaps
             this.InitializeComponent();
             this.Suspending += OnSuspending;
             this.UnhandledException += OnUnhandledException;
+
+            try
+            {
+                SQLitePCL.Batteries_V2.Init();
+                LogStartup("SQLite initialized");
+            }
+            catch (Exception ex)
+            {
+                LogStartup($"SQLite init error: {ex.Message}");
+            }
+
             LogStartup("App constructor done");
         }
 
