@@ -226,6 +226,9 @@
     <PackageReference Include="SQLitePCLRaw.bundle_winsqlite3">
       <Version>1.1.11</Version>
     </PackageReference>
+    <PackageReference Include="System.ValueTuple">
+      <Version>4.4.0</Version>
+    </PackageReference>
   </ItemGroup>
   <ItemGroup>
     <None Include="WinMaps_TemporaryKey.pfx" />
