@@ -59,6 +59,7 @@ namespace WinMaps.Data
         public void CreateSpatialIndex()
         {
             Execute("CREATE INDEX IF NOT EXISTS idx_ways_bounds ON ways(min_lat, max_lat, min_lon, max_lon)");
+            Execute("CREATE INDEX IF NOT EXISTS idx_ways_type_bounds ON ways(type, min_lat, max_lat, min_lon, max_lon)");
         }
 
         public SqliteTransaction BeginTransaction()
@@ -179,6 +180,96 @@ namespace WinMaps.Data
                         result.Add((reader.GetInt64(0), reader.GetInt32(1),
                             reader.IsDBNull(2) ? null : reader.GetString(2),
                             reader.GetDouble(3), reader.GetDouble(4)));
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Queries ways with LOD filtering pushed into SQL.
+        /// Returns geometry directly — no second round trip needed.
+        /// </summary>
+        public List<(int type, string subType, List<(double lat, double lon)> points)> QueryWaysForZoom(
+            double minLat, double maxLat, double minLon, double maxLon, double zoom)
+        {
+            var result = new List<(int, string, List<(double, double)>)>();
+
+            // Build SQL with LOD conditions pushed into WHERE clause
+            // Road=0, Water=1, Park=2
+            string sql;
+            if (zoom < 8)
+            {
+                // Only motorway/trunk roads + very large areas
+                sql = @"SELECT type, subtype, geometry FROM ways
+                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
+                          AND max_lon >= @minLon AND min_lon <= @maxLon
+                          AND (
+                            (type = 0 AND subtype IN ('motorway','trunk','motorway_link','trunk_link'))
+                            OR ((type = 1 OR type = 2) AND ((max_lat - min_lat) >= 0.05 OR (max_lon - min_lon) >= 0.05))
+                          )";
+            }
+            else if (zoom < 10)
+            {
+                // Add primary roads + large areas
+                sql = @"SELECT type, subtype, geometry FROM ways
+                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
+                          AND max_lon >= @minLon AND min_lon <= @maxLon
+                          AND (
+                            (type = 0 AND subtype IN ('motorway','trunk','primary','motorway_link','trunk_link','primary_link'))
+                            OR ((type = 1 OR type = 2) AND ((max_lat - min_lat) >= 0.01 OR (max_lon - min_lon) >= 0.01))
+                          )";
+            }
+            else if (zoom < 12)
+            {
+                // Most roads except minor paths + medium areas
+                sql = @"SELECT type, subtype, geometry FROM ways
+                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
+                          AND max_lon >= @minLon AND min_lon <= @maxLon
+                          AND (
+                            (type = 0 AND subtype NOT IN ('footway','cycleway','path','track','service'))
+                            OR ((type = 1 OR type = 2) AND ((max_lat - min_lat) >= 0.005 OR (max_lon - min_lon) >= 0.005))
+                          )";
+            }
+            else if (zoom < 14)
+            {
+                // All roads except footway/path + smaller areas
+                sql = @"SELECT type, subtype, geometry FROM ways
+                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
+                          AND max_lon >= @minLon AND min_lon <= @maxLon
+                          AND (
+                            (type = 0 AND subtype NOT IN ('footway','path'))
+                            OR ((type = 1 OR type = 2) AND ((max_lat - min_lat) >= 0.001 OR (max_lon - min_lon) >= 0.001))
+                          )";
+            }
+            else
+            {
+                // Show everything
+                sql = @"SELECT type, subtype, geometry FROM ways
+                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
+                          AND max_lon >= @minLon AND min_lon <= @maxLon";
+            }
+
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = sql;
+                cmd.Parameters.AddWithValue("@minLat", minLat);
+                cmd.Parameters.AddWithValue("@maxLat", maxLat);
+                cmd.Parameters.AddWithValue("@minLon", minLon);
+                cmd.Parameters.AddWithValue("@maxLon", maxLon);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        int type = reader.GetInt32(0);
+                        string subType = reader.IsDBNull(1) ? null : reader.GetString(1);
+                        byte[] blob = (byte[])reader["geometry"];
+                        var points = new List<(double, double)>();
+                        DecodeGeometry(blob, points);
+                        if (points.Count >= 2)
+                            result.Add((type, subType, points));
                     }
                 }
             }

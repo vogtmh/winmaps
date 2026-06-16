@@ -129,42 +129,17 @@ namespace WinMaps.Rendering
 
             var newCachedWays = await Task.Run(() =>
             {
-                // Phase 1: Fast metadata query — no geometry blobs read from disk
-                var wayMeta = _db.QueryWaysInBounds(queryMinLat, queryMaxLat, queryMinLon, queryMaxLon);
+                var ways = _db.QueryWaysForZoom(queryMinLat, queryMaxLat, queryMinLon, queryMaxLon, queryZoom);
 
-                // Phase 2: Apply LOD filter and collect IDs for geometry fetch
-                var filtered = new List<(long id, int type, string subType)>();
-                foreach (var (id, type, subType, wayLatSpan, wayLonSpan) in wayMeta)
+                var result = new List<CachedWay>(ways.Count);
+                foreach (var (type, subType, points) in ways)
                 {
-                    if (!ShouldDrawAtZoom(type, subType, queryZoom, wayLatSpan, wayLonSpan))
-                        continue;
-
-                    filtered.Add((id, type, subType));
-                }
-
-                if (filtered.Count == 0)
-                    return new List<CachedWay>();
-
-                // Phase 3: Batch-fetch geometry only for ways we'll actually render
-                var idsToFetch = new List<long>(filtered.Count);
-                foreach (var (id, type, subType) in filtered)
-                    idsToFetch.Add(id);
-
-                var geometries = _db.GetWayGeometryBatch(idsToFetch);
-
-                // Phase 4: Build cached way list
-                var result = new List<CachedWay>(filtered.Count);
-                foreach (var (id, type, subType) in filtered)
-                {
-                    if (geometries.TryGetValue(id, out var points) && points.Count >= 2)
+                    result.Add(new CachedWay
                     {
-                        result.Add(new CachedWay
-                        {
-                            Type = type,
-                            SubType = subType,
-                            Points = points
-                        });
-                    }
+                        Type = type,
+                        SubType = subType,
+                        Points = points
+                    });
                 }
 
                 return result;
@@ -262,42 +237,6 @@ namespace WinMaps.Rendering
         }
 
         // ---- LOD filtering ----
-
-        private bool ShouldDrawAtZoom(int type, string subType, double zoom, double latSpan, double lonSpan)
-        {
-            // For area features (parks, water), filter by size at low zoom
-            if (type == (int)Pbf.OsmElementType.Park || type == (int)Pbf.OsmElementType.Water)
-            {
-                // Minimum geographic span to be visible at each zoom level
-                // At Z8, only show features spanning > ~0.01° (~1km)
-                // At Z10, > ~0.003° (~300m), etc.
-                double minSpan;
-                if (zoom < 8) minSpan = 0.05;       // ~5km
-                else if (zoom < 10) minSpan = 0.01; // ~1km
-                else if (zoom < 12) minSpan = 0.003; // ~300m
-                else if (zoom < 14) minSpan = 0.001; // ~100m
-                else minSpan = 0;                    // show everything
-
-                if (latSpan < minSpan && lonSpan < minSpan)
-                    return false;
-            }
-
-            if (type == (int)Pbf.OsmElementType.Road)
-            {
-                if (zoom < 8)
-                    return subType == "motorway" || subType == "trunk";
-                if (zoom < 10)
-                    return subType == "motorway" || subType == "trunk" ||
-                           subType == "primary" || subType == "motorway_link" || subType == "trunk_link";
-                if (zoom < 12)
-                    return subType != "footway" && subType != "cycleway" &&
-                           subType != "path" && subType != "track" && subType != "service";
-                if (zoom < 14)
-                    return subType != "footway" && subType != "path";
-            }
-
-            return true;
-        }
 
         // ---- Style: road widths (kept here since they're zoom-dependent) ----
         private float GetRoadWidth(string subType, double zoom)
