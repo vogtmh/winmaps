@@ -982,6 +982,7 @@ namespace WinMaps
             _viewport.Pan(dx, dy);
             _panStart = point.Position;
             _followGps = false;
+            UpdateGpsIcon();
             MapCanvas.Invalidate();
 
             RedrawMap();
@@ -1005,6 +1006,7 @@ namespace WinMaps
 
             _viewport.ZoomAt(point.Position.X, point.Position.Y, zoomDelta);
             _followGps = false;
+            UpdateGpsIcon();
             RedrawMap();
             e.Handled = true;
         }
@@ -1020,6 +1022,7 @@ namespace WinMaps
             }
 
             _followGps = false;
+            UpdateGpsIcon();
             MapCanvas.Invalidate();
 
             RedrawMap();
@@ -1043,6 +1046,13 @@ namespace WinMaps
 
         // ---- GPS ----
 
+        private void UpdateGpsIcon()
+        {
+            GpsIcon.Foreground = _followGps
+                ? new SolidColorBrush(Colors.Gold)
+                : new SolidColorBrush(Colors.White);
+        }
+
         private void BtnGps_Click(object sender, RoutedEventArgs e)
         {
             if (!double.IsNaN(_gpsLat))
@@ -1050,6 +1060,7 @@ namespace WinMaps
                 _viewport.CenterLat = _gpsLat;
                 _viewport.CenterLon = _gpsLon;
                 _followGps = true;
+                UpdateGpsIcon();
                 RedrawMap();
             }
             else
@@ -1077,7 +1088,6 @@ namespace WinMaps
                 };
 
                 _geolocator.PositionChanged += OnGpsPositionChanged;
-                GpsIcon.Foreground = new SolidColorBrush(Colors.Gold);
 
                 var pos = await _geolocator.GetGeopositionAsync();
                 UpdateGpsPosition(pos.Coordinate);
@@ -1108,6 +1118,7 @@ namespace WinMaps
                 _viewport.CenterLon = _gpsLon;
                 _initialGpsCentered = true;
                 _followGps = true;
+                UpdateGpsIcon();
             }
             else if (_followGps)
             {
