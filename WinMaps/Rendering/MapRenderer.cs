@@ -454,8 +454,12 @@ namespace WinMaps.Rendering
                     ds.FillCircle(x, y, dotRadius + 1, _theme.PoiHaloColor);
                     ds.FillCircle(x, y, dotRadius, dotColor);
 
-                    // Draw label if we have a name and the cell isn't occupied
-                    if (!string.IsNullOrEmpty(poi.Name))
+                    // Draw label if the cell isn't occupied
+                    string label = poi.Name;
+                    if (string.IsNullOrEmpty(label))
+                        label = poi.SubType;
+
+                    if (!string.IsNullOrEmpty(label))
                     {
                         int col = (int)(x / cellSize);
                         int row = (int)(y / cellSize);
@@ -469,11 +473,11 @@ namespace WinMaps.Rendering
                                 float textY = y;
 
                                 // Text with halo effect: draw dark outline then light text
-                                ds.DrawText(poi.Name, textX - 1, textY, _theme.PoiHaloColor, textFormat);
-                                ds.DrawText(poi.Name, textX + 1, textY, _theme.PoiHaloColor, textFormat);
-                                ds.DrawText(poi.Name, textX, textY - 1, _theme.PoiHaloColor, textFormat);
-                                ds.DrawText(poi.Name, textX, textY + 1, _theme.PoiHaloColor, textFormat);
-                                ds.DrawText(poi.Name, textX, textY, _theme.PoiTextColor, textFormat);
+                                ds.DrawText(label, textX - 1, textY, _theme.PoiHaloColor, textFormat);
+                                ds.DrawText(label, textX + 1, textY, _theme.PoiHaloColor, textFormat);
+                                ds.DrawText(label, textX, textY - 1, _theme.PoiHaloColor, textFormat);
+                                ds.DrawText(label, textX, textY + 1, _theme.PoiHaloColor, textFormat);
+                                ds.DrawText(label, textX, textY, _theme.PoiTextColor, textFormat);
                             }
                         }
                     }
