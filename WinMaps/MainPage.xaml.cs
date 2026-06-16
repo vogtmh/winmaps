@@ -888,9 +888,11 @@ namespace WinMaps
                             return;
                         }
                     }
-
-                    // Compute viewport from Geofabrik children
-                    ComputeViewportFromGf(_worldMapGfRegions);
+                    else
+                    {
+                        // Compute viewport from Geofabrik children
+                        ComputeViewportFromGf(_worldMapGfRegions);
+                    }
 
                     TxtWorldMapTitle.Text = gfRegion.Name;
                     BtnWorldMapBack.Content = "←";
