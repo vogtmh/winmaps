@@ -327,6 +327,10 @@ namespace WinMaps
             _panStart = point.Position;
             _followGps = false;
             MapCanvas.Invalidate();
+
+            // Start loading new data if we've panned outside the cache bounds
+            RedrawMap();
+
             e.Handled = true;
         }
 
@@ -362,6 +366,10 @@ namespace WinMaps
 
             _followGps = false;
             MapCanvas.Invalidate();
+
+            // Start loading new data if we've panned/zoomed outside the cache bounds
+            RedrawMap();
+
             e.Handled = true;
         }
 

@@ -17,12 +17,13 @@ namespace WinMaps.Rendering
         private List<CachedWay> _cachedWays;
         private double _cacheMinLat, _cacheMaxLat, _cacheMinLon, _cacheMaxLon;
         private double _cacheZoom;
-        private const double CacheMarginFactor = 0.3;
+        private const double CacheMarginFactor = 0.5;
 
         // Win2D can handle far more than XAML shapes
         private const int MaxWaysPerFrame = 10000;
 
         private bool _isLoading;
+        private bool _pendingReload;
         private readonly CanvasStrokeStyle _roundStroke;
 
         public MapRenderer(MapDatabase db, MapViewport viewport)
@@ -84,7 +85,11 @@ namespace WinMaps.Rendering
 
         public async Task EnsureCacheAsync()
         {
-            if (_isLoading) return;
+            if (_isLoading)
+            {
+                _pendingReload = true;
+                return;
+            }
 
             double width = _viewport.ScreenWidth;
             double height = _viewport.ScreenHeight;
@@ -165,6 +170,13 @@ namespace WinMaps.Rendering
 
             _cachedWays = newCachedWays;
             _isLoading = false;
+
+            // If a reload was requested while we were loading, re-run
+            if (_pendingReload)
+            {
+                _pendingReload = false;
+                await EnsureCacheAsync();
+            }
         }
 
         // ---- Drawing helpers ----
