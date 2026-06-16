@@ -78,8 +78,9 @@ namespace WinMaps
         // Map manager
         private GeofabrikIndex _geofabrikIndex;
         private GeofabrikGeoIndex _geoIndex;
+        private NaturalEarthIndex _naturalEarthIndex;
         private Stack<string> _browseStack; // parent IDs for back navigation
-        private Stack<string> _worldMapStack; // parent IDs for world map back navigation
+        private Stack<string> _worldMapStack; // navigation for world map back
 
         // Theme
         private MapTheme _currentTheme;
@@ -92,6 +93,7 @@ namespace WinMaps
             _cts = new CancellationTokenSource();
             _geofabrikIndex = new GeofabrikIndex();
             _geoIndex = new GeofabrikGeoIndex();
+            _naturalEarthIndex = new NaturalEarthIndex();
             _browseStack = new Stack<string>();
             _worldMapStack = new Stack<string>();
             _currentTheme = LoadSavedTheme();
@@ -759,7 +761,7 @@ namespace WinMaps
             BrowseView.Visibility = Visibility.Collapsed;
             WorldMapView.Visibility = Visibility.Visible;
             _worldMapStack.Clear();
-            ShowWorldMapLevel(null); // start at world / continent level
+            ShowWorldMapLevel("world");
         }
 
         private void BtnWorldMapBack_Click(object sender, RoutedEventArgs e)
@@ -771,81 +773,187 @@ namespace WinMaps
                 MyMapsView.Visibility = Visibility.Visible;
                 return;
             }
-            _worldMapStack.Pop();
-            string parent = _worldMapStack.Count > 0 ? _worldMapStack.Peek() : null;
-            ShowWorldMapLevel(parent);
+            string prev = _worldMapStack.Pop();
+            if (prev == "world")
+            {
+                ShowWorldMapLevel("world");
+            }
+            else if (prev != null && prev.StartsWith("continent:"))
+            {
+                string continent = prev.Substring("continent:".Length);
+                ShowWorldMapLevel("continent", continent);
+            }
+            else
+            {
+                ShowWorldMapLevel("world");
+            }
         }
 
-        // The regions currently drawn on the canvas, in the same order as _worldMapRegions
-        private List<GeofabrikRegion> _worldMapRegions;
+        // The NE countries currently drawn on the canvas (levels 1 & 2), or null at level 3
+        private List<NaturalEarthCountry> _worldMapNECountries;
+        // The Geofabrik regions drawn at country level (level 3), or null at levels 1 & 2
+        private List<GeofabrikRegion> _worldMapGfRegions;
+        // "world", "continent", or "country"
+        private string _worldMapLevel = "world";
+        // Selected continent name (for level 2, e.g. "Europe")
+        private string _worldMapContinent;
+        // Selected country ISO + Geofabrik ID (for level 3)
+        private string _worldMapCountryIso;
+        private string _worldMapCountryGfId;
         // Current viewport for the canvas (lat/lon bounds being displayed)
         private (double MinLat, double MinLon, double MaxLat, double MaxLon) _worldMapViewport
             = (-85, -180, 85, 180);
 
-        private async void ShowWorldMapLevel(string parentId)
+        private async void ShowWorldMapLevel(string level, string param = null)
         {
-            // Ensure catalog is loaded
+            // Ensure Geofabrik catalog is loaded (needed for color logic at all levels)
             if (!_geofabrikIndex.IsLoaded)
             {
                 TxtWorldMapLoading.Visibility = Visibility.Visible;
+                TxtWorldMapLoading.Text = "Loading catalog…";
                 try { await _geofabrikIndex.LoadAsync(); }
                 catch { TxtWorldMapLoading.Text = "Failed to load catalog."; return; }
             }
 
-            // Ensure geometry is loaded (lazy, once)
-            if (!_geoIndex.IsLoaded)
+            // Ensure Natural Earth data is loaded
+            if (!_naturalEarthIndex.IsLoaded)
             {
                 TxtWorldMapLoading.Visibility = Visibility.Visible;
                 TxtWorldMapLoading.Text = "Loading map data…";
-                await _geoIndex.LoadAsync(_geofabrikIndex);
+                try { await _naturalEarthIndex.LoadAsync(); }
+                catch { TxtWorldMapLoading.Text = "Failed to load map shapes."; return; }
             }
             TxtWorldMapLoading.Visibility = Visibility.Collapsed;
 
-            // Determine which regions to show at this level
-            var children = parentId == null
-                ? _geofabrikIndex.GetRoots()
-                : _geofabrikIndex.GetChildren(parentId);
+            _worldMapLevel = level;
+            _worldMapNECountries = null;
+            _worldMapGfRegions = null;
 
-            // Filter to regions that have geometry; skip pure placeholders
-            _worldMapRegions = new List<GeofabrikRegion>();
-            foreach (var r in children)
-                if (r.Geometry != null && r.Geometry.Count > 0)
-                    _worldMapRegions.Add(r);
-
-            // Set viewport to bounding box of all visible regions
-            if (_worldMapRegions.Count > 0)
+            if (level == "world")
             {
-                double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
-                foreach (var r in _worldMapRegions)
+                // Show all countries, colored by continent status
+                _worldMapNECountries = _naturalEarthIndex.GetAllCountries();
+                _worldMapViewport = (-60, -180, 85, 180);
+                TxtWorldMapTitle.Text = "World";
+                BtnWorldMapBack.Content = "← My Maps";
+            }
+            else if (level == "continent")
+            {
+                _worldMapContinent = param;
+                _worldMapNECountries = _naturalEarthIndex.GetCountriesByContinent(param);
+
+                // Compute viewport from country bounds
+                ComputeViewportFromNE(_worldMapNECountries);
+
+                TxtWorldMapTitle.Text = param;
+                BtnWorldMapBack.Content = "←";
+            }
+            else if (level == "country")
+            {
+                _worldMapCountryIso = param;
+                // Find Geofabrik region by ISO and get its children
+                var gfRegion = _geofabrikIndex.GetRegionByIso(param);
+                if (gfRegion != null)
                 {
-                    if (!r.HasBbox) continue;
+                    _worldMapCountryGfId = gfRegion.Id;
+
+                    // Ensure geometry is loaded for Geofabrik subdivisions
+                    if (!_geoIndex.IsLoaded)
+                    {
+                        TxtWorldMapLoading.Visibility = Visibility.Visible;
+                        TxtWorldMapLoading.Text = "Loading region details…";
+                        await _geoIndex.LoadAsync(_geofabrikIndex);
+                        TxtWorldMapLoading.Visibility = Visibility.Collapsed;
+                    }
+
+                    var children = _geofabrikIndex.GetChildren(gfRegion.Id);
+                    _worldMapGfRegions = new List<GeofabrikRegion>();
+                    foreach (var child in children)
+                        if (child.Geometry != null && child.Geometry.Count > 0)
+                            _worldMapGfRegions.Add(child);
+
+                    if (_worldMapGfRegions.Count == 0)
+                    {
+                        // No subdivisions with geometry — fall back to browse list
+                        FallBackToBrowse(gfRegion.Id);
+                        return;
+                    }
+
+                    // Compute viewport from Geofabrik children
+                    ComputeViewportFromGf(_worldMapGfRegions);
+
+                    TxtWorldMapTitle.Text = gfRegion.Name;
+                    BtnWorldMapBack.Content = "←";
+                }
+                else
+                {
+                    // No Geofabrik match — go back
+                    return;
+                }
+            }
+
+            BtnWorldMapBack.Visibility = Visibility.Visible;
+            WorldMapCanvas.Invalidate();
+        }
+
+        private void ComputeViewportFromNE(List<NaturalEarthCountry> countries)
+        {
+            double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+            foreach (var c in countries)
+            {
+                foreach (var ring in c.Geometry)
+                    foreach (var p in ring)
+                    {
+                        if (p.Lat < minLat) minLat = p.Lat;
+                        if (p.Lat > maxLat) maxLat = p.Lat;
+                        if (p.Lon < minLon) minLon = p.Lon;
+                        if (p.Lon > maxLon) maxLon = p.Lon;
+                    }
+            }
+            // Add 2° padding
+            if (maxLat > minLat && maxLon > minLon)
+                _worldMapViewport = (minLat - 2, minLon - 2, maxLat + 2, maxLon + 2);
+            else
+                _worldMapViewport = (-85, -180, 85, 180);
+        }
+
+        private void ComputeViewportFromGf(List<GeofabrikRegion> regions)
+        {
+            double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+            foreach (var r in regions)
+            {
+                if (r.HasBbox)
+                {
                     if (r.BboxMinLat < minLat) minLat = r.BboxMinLat;
                     if (r.BboxMaxLat > maxLat) maxLat = r.BboxMaxLat;
                     if (r.BboxMinLon < minLon) minLon = r.BboxMinLon;
                     if (r.BboxMaxLon > maxLon) maxLon = r.BboxMaxLon;
                 }
-                // Fall back to world extent if no bbox data was available
-                if (maxLat > minLat && maxLon > minLon)
-                    _worldMapViewport = (minLat, minLon, maxLat, maxLon);
-                else
-                    _worldMapViewport = (-85, -180, 85, 180);
+                else if (r.Geometry != null)
+                {
+                    foreach (var ring in r.Geometry)
+                        foreach (var p in ring)
+                        {
+                            if (p.Lat < minLat) minLat = p.Lat;
+                            if (p.Lat > maxLat) maxLat = p.Lat;
+                            if (p.Lon < minLon) minLon = p.Lon;
+                            if (p.Lon > maxLon) maxLon = p.Lon;
+                        }
+                }
             }
-
-            // Update header
-            if (parentId == null)
-            {
-                TxtWorldMapTitle.Text = "World";
-                BtnWorldMapBack.Content = "← My Maps";
-            }
+            if (maxLat > minLat && maxLon > minLon)
+                _worldMapViewport = (minLat - 1, minLon - 1, maxLat + 1, maxLon + 1);
             else
-            {
-                var pr = _geofabrikIndex.GetRegion(parentId);
-                TxtWorldMapTitle.Text = pr?.Name ?? parentId;
-                BtnWorldMapBack.Content = "←";
-            }
-            BtnWorldMapBack.Visibility = Visibility.Visible;
+                _worldMapViewport = (-85, -180, 85, 180);
+        }
 
-            WorldMapCanvas.Invalidate();
+        private void FallBackToBrowse(string regionId)
+        {
+            WorldMapView.Visibility = Visibility.Collapsed;
+            BrowseView.Visibility = Visibility.Visible;
+            _browseStack.Clear();
+            _browseStack.Push(regionId);
+            ShowBrowseLevel(regionId);
         }
 
         private void WorldMapCanvas_Draw(
@@ -860,8 +968,6 @@ namespace WinMaps
             ds.FillRectangle(0, 0, W, H,
                 Windows.UI.Color.FromArgb(255, 30, 40, 58));
 
-            if (_worldMapRegions == null || _worldMapRegions.Count == 0) return;
-
             var (minLat, minLon, maxLat, maxLon) = _worldMapViewport;
             double latSpan = maxLat - minLat;
             double lonSpan = maxLon - minLon;
@@ -871,7 +977,6 @@ namespace WinMaps
             float drawW = W - 2 * padding;
             float drawH = H - 2 * padding;
 
-            // Simple equirectangular projection
             Func<double, double, (float x, float y)> project = (lat, lon) =>
             {
                 float x = padding + (float)((lon - minLon) / lonSpan * drawW);
@@ -879,84 +984,231 @@ namespace WinMaps
                 return (x, y);
             };
 
+            if (_worldMapLevel == "country" && _worldMapGfRegions != null)
+            {
+                DrawGeofabrikRegions(ds, sender, project, W, H, drawW);
+            }
+            else if (_worldMapNECountries != null)
+            {
+                DrawNaturalEarthCountries(ds, sender, project, W, H, drawW);
+            }
+        }
+
+        private void DrawNaturalEarthCountries(
+            Microsoft.Graphics.Canvas.CanvasDrawingSession ds,
+            Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl sender,
+            Func<double, double, (float x, float y)> project,
+            float W, float H, float drawW)
+        {
             var installedIds = GetInstalledRegionIds();
 
-            // Sort regions by approximate area (largest first) so smaller regions
-            // are drawn on top and aren't hidden by overlapping neighbours.
-            var sorted = new List<GeofabrikRegion>(_worldMapRegions);
-            sorted.Sort((a, b) =>
+            // Precompute continent-level download status for world view
+            Dictionary<string, (int total, int installed)> continentStatus = null;
+            if (_worldMapLevel == "world")
             {
-                double areaA = ComputeRingArea(a.Geometry);
-                double areaB = ComputeRingArea(b.Geometry);
-                return areaB.CompareTo(areaA); // largest first
-            });
+                continentStatus = new Dictionary<string, (int, int)>();
+                foreach (var continent in _naturalEarthIndex.GetContinents())
+                {
+                    int total = 0, installed = 0;
+                    foreach (var c in _naturalEarthIndex.GetCountriesByContinent(continent))
+                    {
+                        var gfr = _geofabrikIndex.GetRegionByIso(c.IsoA2);
+                        if (gfr == null) continue;
+                        var leaves = _geofabrikIndex.GetLeaves(gfr.Id);
+                        total += leaves.Count;
+                        foreach (var l in leaves)
+                            if (installedIds.Contains(l.Id)) installed++;
+                    }
+                    continentStatus[continent] = (total, installed);
+                }
+            }
+
+            var stroke = Windows.UI.Color.FromArgb(255, 100, 120, 140);
+
+            foreach (var country in _worldMapNECountries)
+            {
+                if (country.Geometry == null) continue;
+
+                // Determine fill color
+                Windows.UI.Color fill;
+                if (_worldMapLevel == "world")
+                {
+                    // Color by continent
+                    var cs = continentStatus != null && continentStatus.ContainsKey(country.Continent)
+                        ? continentStatus[country.Continent]
+                        : (0, 0);
+                    fill = ChooseMapColor(cs.total, cs.installed);
+                }
+                else
+                {
+                    // Continent level — color by individual country
+                    var gfr = _geofabrikIndex.GetRegionByIso(country.IsoA2);
+                    if (gfr != null)
+                    {
+                        var leaves = _geofabrikIndex.GetLeaves(gfr.Id);
+                        int total = leaves.Count, installed = 0;
+                        foreach (var l in leaves)
+                            if (installedIds.Contains(l.Id)) installed++;
+                        fill = ChooseMapColor(total, installed);
+                    }
+                    else
+                        fill = ChooseMapColor(0, 0);
+                }
+
+                DrawPolygonRings(ds, sender, project, country.Geometry, fill, stroke);
+            }
+
+            // Draw labels
+            DrawNELabels(ds, project, W, H, drawW, continentStatus);
+        }
+
+        private void DrawGeofabrikRegions(
+            Microsoft.Graphics.Canvas.CanvasDrawingSession ds,
+            Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl sender,
+            Func<double, double, (float x, float y)> project,
+            float W, float H, float drawW)
+        {
+            var installedIds = GetInstalledRegionIds();
+            var stroke = Windows.UI.Color.FromArgb(255, 100, 120, 140);
+
+            // Sort by area — largest first so smaller regions draw on top
+            var sorted = new List<GeofabrikRegion>(_worldMapGfRegions);
+            sorted.Sort((a, b) => ComputeRingArea(b.Geometry).CompareTo(ComputeRingArea(a.Geometry)));
 
             foreach (var region in sorted)
             {
                 if (region.Geometry == null) continue;
 
-                // Determine fill color based on download status
                 var leaves = _geofabrikIndex.GetLeaves(region.Id);
-                int total = leaves.Count;
-                int installed = 0;
+                int total = leaves.Count, installed = 0;
                 foreach (var l in leaves)
                     if (installedIds.Contains(l.Id)) installed++;
 
-                Windows.UI.Color fill;
-                if (total == 0 || installed == 0)
-                    fill = Windows.UI.Color.FromArgb(255, 58, 76, 100);   // grey-blue — none
-                else if (installed == total)
-                    fill = Windows.UI.Color.FromArgb(255, 50, 140, 70);   // green — complete
-                else
-                    fill = Windows.UI.Color.FromArgb(255, 190, 125, 35);  // orange — partial
+                var fill = ChooseMapColor(total, installed);
+                DrawPolygonRings(ds, sender, project, region.Geometry, fill, stroke);
 
-                var stroke = Windows.UI.Color.FromArgb(255, 120, 140, 160);
-
-                foreach (var ring in region.Geometry)
-                {
-                    if (ring.Count < 3) continue;
-
-                    // Normalize longitudes so consecutive deltas stay within ±180°.
-                    // This unwraps antimeridian crossings (e.g. Russia, Asia) so Win2D
-                    // doesn't draw a line sweeping across the whole canvas.
-                    var normRing = NormalizeRingLons(ring);
-
-                    using (var pb = new Microsoft.Graphics.Canvas.Geometry.CanvasPathBuilder(sender))
-                    {
-                        var first = project(normRing[0].Lat, normRing[0].Lon);
-                        pb.BeginFigure(first.x, first.y);
-                        for (int p = 1; p < normRing.Count; p++)
-                        {
-                            var pt = project(normRing[p].Lat, normRing[p].Lon);
-                            pb.AddLine(pt.x, pt.y);
-                        }
-                        pb.EndFigure(Microsoft.Graphics.Canvas.Geometry.CanvasFigureLoop.Closed);
-
-                        using (var geo = Microsoft.Graphics.Canvas.Geometry.CanvasGeometry.CreatePath(pb))
-                        {
-                            ds.FillGeometry(geo, fill);
-                            ds.DrawGeometry(geo, stroke, 1f);
-                        }
-                    }
-                }
-
-                // Draw region name label at centroid
+                // Draw label
+                var (minLat, minLon, maxLat, maxLon) = _worldMapViewport;
                 var centroid = ComputeGeometryCentroid(region.Geometry, minLon, maxLon);
                 var cp = project(centroid.lat, centroid.lon);
-                // Only draw label if centroid is within canvas bounds
                 if (cp.x > 0 && cp.x < W && cp.y > 0 && cp.y < H)
                 {
                     using (var fmt = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat())
                     {
-                        fmt.FontSize = Math.Max(11f, Math.Min(16f, drawW / 50f));
+                        fmt.FontSize = Math.Max(10f, Math.Min(14f, drawW / 60f));
                         fmt.HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Center;
                         fmt.VerticalAlignment = Microsoft.Graphics.Canvas.Text.CanvasVerticalAlignment.Center;
-                        float tw = 120, th = 30;
+                        float tw = 120, th = 24;
                         ds.DrawText(region.Name, cp.x - tw / 2, cp.y - th / 2, tw, th,
                             Windows.UI.Colors.White, fmt);
                     }
                 }
             }
+        }
+
+        private void DrawPolygonRings(
+            Microsoft.Graphics.Canvas.CanvasDrawingSession ds,
+            Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl sender,
+            Func<double, double, (float x, float y)> project,
+            List<List<(double Lat, double Lon)>> geometry,
+            Windows.UI.Color fill, Windows.UI.Color stroke)
+        {
+            foreach (var ring in geometry)
+            {
+                if (ring.Count < 3) continue;
+                var normRing = NormalizeRingLons(ring);
+
+                using (var pb = new Microsoft.Graphics.Canvas.Geometry.CanvasPathBuilder(sender))
+                {
+                    var first = project(normRing[0].Lat, normRing[0].Lon);
+                    pb.BeginFigure(first.x, first.y);
+                    for (int p = 1; p < normRing.Count; p++)
+                    {
+                        var pt = project(normRing[p].Lat, normRing[p].Lon);
+                        pb.AddLine(pt.x, pt.y);
+                    }
+                    pb.EndFigure(Microsoft.Graphics.Canvas.Geometry.CanvasFigureLoop.Closed);
+
+                    using (var geo = Microsoft.Graphics.Canvas.Geometry.CanvasGeometry.CreatePath(pb))
+                    {
+                        ds.FillGeometry(geo, fill);
+                        ds.DrawGeometry(geo, stroke, 0.5f);
+                    }
+                }
+            }
+        }
+
+        private void DrawNELabels(
+            Microsoft.Graphics.Canvas.CanvasDrawingSession ds,
+            Func<double, double, (float x, float y)> project,
+            float W, float H, float drawW,
+            Dictionary<string, (int total, int installed)> continentStatus)
+        {
+            if (_worldMapLevel == "world")
+            {
+                // Draw one label per continent at a fixed representative position
+                var continentLabels = new Dictionary<string, (double lat, double lon)>
+                {
+                    { "Africa", (5, 20) },
+                    { "Asia", (35, 85) },
+                    { "Europe", (52, 15) },
+                    { "North America", (45, -100) },
+                    { "South America", (-15, -58) },
+                    { "Oceania", (-25, 135) },
+                };
+
+                using (var fmt = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat())
+                {
+                    fmt.FontSize = Math.Max(12f, Math.Min(18f, drawW / 45f));
+                    fmt.HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Center;
+                    fmt.VerticalAlignment = Microsoft.Graphics.Canvas.Text.CanvasVerticalAlignment.Center;
+
+                    foreach (var kv in continentLabels)
+                    {
+                        var cp = project(kv.Value.lat, kv.Value.lon);
+                        if (cp.x > 0 && cp.x < W && cp.y > 0 && cp.y < H)
+                        {
+                            float tw = 160, th = 30;
+                            ds.DrawText(kv.Key, cp.x - tw / 2, cp.y - th / 2, tw, th,
+                                Windows.UI.Colors.White, fmt);
+                        }
+                    }
+                }
+            }
+            else if (_worldMapLevel == "continent")
+            {
+                // Draw country name labels at centroids
+                using (var fmt = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat())
+                {
+                    fmt.FontSize = Math.Max(9f, Math.Min(14f, drawW / 55f));
+                    fmt.HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Center;
+                    fmt.VerticalAlignment = Microsoft.Graphics.Canvas.Text.CanvasVerticalAlignment.Center;
+
+                    var (vpMinLat, vpMinLon, vpMaxLat, vpMaxLon) = _worldMapViewport;
+                    foreach (var country in _worldMapNECountries)
+                    {
+                        if (country.Geometry == null) continue;
+                        var centroid = ComputeGeometryCentroid(country.Geometry, vpMinLon, vpMaxLon);
+                        var cp = project(centroid.lat, centroid.lon);
+                        if (cp.x > 10 && cp.x < W - 10 && cp.y > 10 && cp.y < H - 10)
+                        {
+                            float tw = 100, th = 20;
+                            ds.DrawText(country.Name, cp.x - tw / 2, cp.y - th / 2, tw, th,
+                                Windows.UI.Colors.White, fmt);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static Windows.UI.Color ChooseMapColor(int total, int installed)
+        {
+            if (total == 0 || installed == 0)
+                return Windows.UI.Color.FromArgb(255, 58, 76, 100);   // grey-blue — none
+            else if (installed >= total)
+                return Windows.UI.Color.FromArgb(255, 50, 140, 70);   // green — complete
+            else
+                return Windows.UI.Color.FromArgb(255, 190, 125, 35);  // orange — partial
         }
 
         /// <summary>
@@ -1040,8 +1292,6 @@ namespace WinMaps
         private void WorldMapCanvas_PointerPressed(object sender,
             Windows.UI.Xaml.Input.PointerRoutedEventArgs e)
         {
-            if (_worldMapRegions == null || _worldMapRegions.Count == 0) return;
-
             var pt = e.GetCurrentPoint(WorldMapCanvas).Position;
             float W = (float)WorldMapCanvas.ActualWidth;
             float H = (float)WorldMapCanvas.ActualHeight;
@@ -1057,26 +1307,38 @@ namespace WinMaps
             double tapLon = minLon + ((pt.X - padding) / drawW) * lonSpan;
             double tapLat = maxLat - ((pt.Y - padding) / drawH) * latSpan;
 
-            // Find hit region using bbox pre-filter then point-in-polygon
-            foreach (var region in _worldMapRegions)
+            if (_worldMapLevel == "country" && _worldMapGfRegions != null)
             {
-                if (!region.HasBbox) continue;
-                if (tapLon < region.BboxMinLon || tapLon > region.BboxMaxLon) continue;
-                if (tapLat < region.BboxMinLat || tapLat > region.BboxMaxLat) continue;
-                if (region.Geometry == null) continue;
-
-                if (PointInRegion(tapLat, tapLon, region))
+                // Hit test against Geofabrik regions
+                foreach (var region in _worldMapGfRegions)
                 {
-                    OnWorldMapRegionTapped(region);
-                    return;
+                    if (region.Geometry == null) continue;
+                    if (PointInGeometry(tapLat, tapLon, region.Geometry))
+                    {
+                        OnWorldMapGfRegionTapped(region);
+                        return;
+                    }
+                }
+            }
+            else if (_worldMapNECountries != null)
+            {
+                // Hit test against Natural Earth countries
+                foreach (var country in _worldMapNECountries)
+                {
+                    if (country.Geometry == null) continue;
+                    if (PointInGeometry(tapLat, tapLon, country.Geometry))
+                    {
+                        OnWorldMapNECountryTapped(country);
+                        return;
+                    }
                 }
             }
         }
 
-        private static bool PointInRegion(double lat, double lon, GeofabrikRegion region)
+        private static bool PointInGeometry(double lat, double lon,
+            List<List<(double Lat, double Lon)>> geometry)
         {
-            // Ray-casting on the outer ring of each polygon
-            foreach (var ring in region.Geometry)
+            foreach (var ring in geometry)
             {
                 if (PointInRing(lat, lon, ring)) return true;
             }
@@ -1099,29 +1361,35 @@ namespace WinMaps
             return inside;
         }
 
-        private void OnWorldMapRegionTapped(GeofabrikRegion region)
+        private void OnWorldMapNECountryTapped(NaturalEarthCountry country)
         {
-            // If this region has children with geometry, drill down
-            bool hasGeoChildren = false;
-            foreach (var child in _geofabrikIndex.GetChildren(region.Id))
-                if (child.Geometry != null) { hasGeoChildren = true; break; }
+            if (_worldMapLevel == "world")
+            {
+                // Drill into this continent
+                _worldMapStack.Push("world");
+                ShowWorldMapLevel("continent", country.Continent);
+            }
+            else if (_worldMapLevel == "continent")
+            {
+                // Drill into this country's subdivisions
+                var gfr = _geofabrikIndex.GetRegionByIso(country.IsoA2);
+                if (gfr != null && _geofabrikIndex.HasChildren(gfr.Id))
+                {
+                    _worldMapStack.Push("continent:" + _worldMapContinent);
+                    ShowWorldMapLevel("country", country.IsoA2);
+                }
+                else if (gfr != null)
+                {
+                    // Leaf country with no subdivisions — open browse list
+                    FallBackToBrowse(gfr.Id);
+                }
+            }
+        }
 
-            if (hasGeoChildren)
-            {
-                _worldMapStack.Push(region.Id);
-                ShowWorldMapLevel(region.Id);
-            }
-            else
-            {
-                // Leaf — switch to the list browse view at this region's level so the
-                // user can download exactly what they want
-                MyMapsView.Visibility = Visibility.Collapsed;
-                WorldMapView.Visibility = Visibility.Collapsed;
-                BrowseView.Visibility = Visibility.Visible;
-                _browseStack.Clear();
-                _browseStack.Push(region.Id);
-                ShowBrowseLevel(region.Id);
-            }
+        private void OnWorldMapGfRegionTapped(GeofabrikRegion region)
+        {
+            // At country level — open the browse list for this subdivision
+            FallBackToBrowse(region.Id);
         }
 
         private async void ShowBrowseLevel(string parentId)

@@ -103,6 +103,7 @@
     <Compile Include="Data\MapImporter.cs" />
     <Compile Include="Download\GeofabrikGeoIndex.cs" />
     <Compile Include="Download\GeofabrikIndex.cs" />
+    <Compile Include="Download\NaturalEarthIndex.cs" />
     <Compile Include="Download\MapDownloadManager.cs" />
     <Compile Include="MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>
@@ -124,6 +125,8 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Assets\LargeTile.scale-100.png" />
+    <Content Include="Assets\NaturalEarth\ne_50m_admin_0_countries.geojson" />
+    <Content Include="Assets\NaturalEarth\ne_110m_admin_0_countries.geojson" />
     <Content Include="Assets\LargeTile.scale-125.png" />
     <Content Include="Assets\LargeTile.scale-150.png" />
     <Content Include="Assets\LargeTile.scale-200.png" />

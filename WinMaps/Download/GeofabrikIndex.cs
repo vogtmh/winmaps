@@ -33,6 +33,7 @@ namespace WinMaps.Download
 
         private Dictionary<string, GeofabrikRegion> _regions;
         private Dictionary<string, List<GeofabrikRegion>> _childrenByParent;
+        private Dictionary<string, GeofabrikRegion> _regionByIso;
 
         public bool IsLoaded => _regions != null && _regions.Count > 0;
 
@@ -136,6 +137,16 @@ namespace WinMaps.Download
         }
 
         /// <summary>
+        /// Returns a region by its ISO 3166-1 alpha-2 code, or null if not found.
+        /// </summary>
+        public GeofabrikRegion GetRegionByIso(string isoA2)
+        {
+            if (_regionByIso != null && _regionByIso.TryGetValue(isoA2, out var region))
+                return region;
+            return null;
+        }
+
+        /// <summary>
         /// Returns true if the region is a continent (no parent) — not downloadable.
         /// </summary>
         public bool IsContinent(string id)
@@ -180,6 +191,7 @@ namespace WinMaps.Download
         {
             _regions = new Dictionary<string, GeofabrikRegion>();
             _childrenByParent = new Dictionary<string, List<GeofabrikRegion>>();
+            _regionByIso = new Dictionary<string, GeofabrikRegion>();
 
             var root = JsonObject.Parse(json);
             var features = root.GetNamedArray("features");
@@ -229,6 +241,19 @@ namespace WinMaps.Download
                 };
 
                 _regions[id] = region;
+
+                // Build ISO → region index
+                if (props.ContainsKey("iso3166-1:alpha2") &&
+                    props.GetNamedValue("iso3166-1:alpha2").ValueType == JsonValueType.Array)
+                {
+                    var isoCodes = props.GetNamedArray("iso3166-1:alpha2");
+                    for (uint j = 0; j < isoCodes.Count; j++)
+                    {
+                        string isoCode = isoCodes.GetStringAt(j);
+                        if (!string.IsNullOrEmpty(isoCode))
+                            _regionByIso[isoCode] = region;
+                    }
+                }
 
                 // Build parent → children index
                 string parentKey = parentId ?? "";
