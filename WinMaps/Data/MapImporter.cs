@@ -66,14 +66,16 @@ namespace WinMaps.Data
 
                     newSinceCompact += way.NodeRefs.Length;
 
-                    // Periodically sort+dedup to prevent unbounded memory growth.
+                    // Periodically sort+dedup IN-PLACE to prevent unbounded memory growth.
                     // Only trigger when enough NEW refs accumulated since last compaction.
                     if (newSinceCompact >= CompactThreshold)
                     {
                         nodeIdList.Sort();
-                        var compacted = DeduplicateSortedToList(nodeIdList);
-                        nodeIdList.Clear();
-                        nodeIdList.AddRange(compacted);
+                        int w = 1;
+                        for (int i = 1; i < nodeIdList.Count; i++)
+                            if (nodeIdList[i] != nodeIdList[i - 1])
+                                nodeIdList[w++] = nodeIdList[i];
+                        nodeIdList.RemoveRange(w, nodeIdList.Count - w);
                         newSinceCompact = 0;
                     }
                 };
@@ -269,22 +271,6 @@ namespace WinMaps.Data
             for (int i = 1; i < sorted.Count; i++)
                 if (sorted[i] != sorted[i - 1])
                     result[w++] = sorted[i];
-
-            return result;
-        }
-
-        /// <summary>
-        /// Like DeduplicateSorted but returns a List for use during incremental compaction.
-        /// </summary>
-        private static List<long> DeduplicateSortedToList(List<long> sorted)
-        {
-            if (sorted.Count == 0) return new List<long>();
-
-            var result = new List<long>(sorted.Count / 3);
-            result.Add(sorted[0]);
-            for (int i = 1; i < sorted.Count; i++)
-                if (sorted[i] != sorted[i - 1])
-                    result.Add(sorted[i]);
 
             return result;
         }
