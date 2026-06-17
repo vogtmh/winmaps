@@ -32,6 +32,13 @@ namespace WinMaps.Rendering
         private bool _isLoading;
         private bool _pendingReload;
         private readonly CanvasStrokeStyle _roundStroke;
+        private readonly CanvasStrokeStyle _dashedStroke;
+
+        // Subtypes that should render as dashed lines
+        private static readonly HashSet<string> DashedRoadSubTypes = new HashSet<string>
+        {
+            "footway", "path", "cycleway", "track"
+        };
 
         // Per-frame offset to convert cached Mercator coords → screen coords
         private float _frameOffsetX, _frameOffsetY;
@@ -46,6 +53,14 @@ namespace WinMaps.Rendering
                 LineJoin = CanvasLineJoin.Round,
                 StartCap = CanvasCapStyle.Round,
                 EndCap = CanvasCapStyle.Round
+            };
+            _dashedStroke = new CanvasStrokeStyle
+            {
+                LineJoin = CanvasLineJoin.Round,
+                StartCap = CanvasCapStyle.Round,
+                EndCap = CanvasCapStyle.Round,
+                DashStyle = CanvasDashStyle.Dash,
+                CustomDashStyle = new float[] { 3f, 3f }
             };
         }
 
@@ -83,18 +98,26 @@ namespace WinMaps.Rendering
             if (_viewport.Zoom >= 15)
                 DrawBuildings(ds, labelsOnly: false);
 
-            // Road outlines (only at zoom >= 13)
+            // Road outlines (only at zoom >= 13, solid roads only — no outlines on dashed)
             if (_viewport.Zoom >= 13)
             {
                 DrawBatchedLines(ds, rc, (int)Pbf.OsmElementType.Road,
                     w => _theme.GetRoadOutlineColor(w.SubType),
-                    w => { float wid = GetRoadWidth(w.SubType, _viewport.Zoom); return wid >= 2 ? wid + 2 : -1; });
+                    w => { float wid = GetRoadWidth(w.SubType, _viewport.Zoom); return wid >= 2 ? wid + 2 : -1; },
+                    dashedFilter: false);
             }
 
-            // Road fills
+            // Solid road fills
             DrawBatchedLines(ds, rc, (int)Pbf.OsmElementType.Road,
                 w => _theme.GetRoadColor(w.SubType),
-                w => GetRoadWidth(w.SubType, _viewport.Zoom));
+                w => GetRoadWidth(w.SubType, _viewport.Zoom),
+                dashedFilter: false);
+
+            // Dashed roads (footway, path, cycleway, track) — drawn after solid roads
+            DrawBatchedLines(ds, rc, (int)Pbf.OsmElementType.Road,
+                w => _theme.GetRoadColor(w.SubType),
+                w => GetRoadWidth(w.SubType, _viewport.Zoom),
+                dashedFilter: true);
 
             // Building labels on top of roads (zoom >= 17)
             if (_viewport.Zoom >= 17)
@@ -213,7 +236,8 @@ namespace WinMaps.Rendering
         }
 
         private void DrawBatchedLines(CanvasDrawingSession ds, ICanvasResourceCreator rc,
-            int typeFilter, Func<CachedWay, Color> colorFunc, Func<CachedWay, float> widthFunc)
+            int typeFilter, Func<CachedWay, Color> colorFunc, Func<CachedWay, float> widthFunc,
+            bool? dashedFilter = null)
         {
             // Group by (color, width), build one combined geometry per group
             var batches = new Dictionary<ulong, (Color color, float width, List<CachedWay> ways)>();
@@ -221,6 +245,14 @@ namespace WinMaps.Rendering
             foreach (var way in _cachedWays)
             {
                 if (way.Type != typeFilter || way.MercX.Length < 2) continue;
+
+                // Filter by dashed/solid if requested
+                if (dashedFilter.HasValue)
+                {
+                    bool isDashed = DashedRoadSubTypes.Contains(way.SubType);
+                    if (isDashed != dashedFilter.Value) continue;
+                }
+
                 float w = widthFunc(way);
                 if (w < 0) continue; // skip (used for outline filter)
                 Color c = colorFunc(way);
@@ -257,7 +289,8 @@ namespace WinMaps.Rendering
                         }
                         using (var geo = CanvasGeometry.CreatePath(pb))
                         {
-                            ds.DrawGeometry(geo, color, width, _roundStroke);
+                            var style = (dashedFilter == true) ? _dashedStroke : _roundStroke;
+                            ds.DrawGeometry(geo, color, width, style);
                         }
                     }
                 }
@@ -475,6 +508,7 @@ namespace WinMaps.Rendering
                 case "path":
                 case "cycleway":
                 case "track":
+                    if (zoom < 15) return -1;
                     baseWidth = 0.8f; break;
                 case "pedestrian":
                     baseWidth = 1.5f; break;

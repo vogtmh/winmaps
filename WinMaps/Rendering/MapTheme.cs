@@ -83,8 +83,8 @@ namespace WinMaps.Rendering
             PoiDotColor = Color.FromArgb(255, 180, 60, 60),
             PoiHaloColor = Colors.White,
             PoiTextColor = Color.FromArgb(255, 80, 40, 40),
-            BuildingFill = Color.FromArgb(255, 218, 212, 205),
-            BuildingStroke = Color.FromArgb(255, 185, 178, 168),
+            BuildingFill = Color.FromArgb(255, 217, 208, 201),
+            BuildingStroke = Color.FromArgb(255, 195, 183, 173),
             BuildingLabelColor = Color.FromArgb(255, 100, 90, 80),
             PoiColors = new Dictionary<string, Color>
             {
@@ -127,13 +127,18 @@ namespace WinMaps.Rendering
             },
             ParkColors = new Dictionary<string, Color>
             {
-                ["forest"] = Color.FromArgb(255, 173, 209, 158),
-                ["wood"] = Color.FromArgb(255, 173, 209, 158),
+                ["forest"] = Color.FromArgb(255, 157, 202, 138),
+                ["wood"] = Color.FromArgb(255, 157, 202, 138),
+                ["scrub"] = Color.FromArgb(255, 181, 211, 164),
                 ["grass"] = Color.FromArgb(255, 205, 235, 176),
                 ["meadow"] = Color.FromArgb(255, 205, 235, 176),
-                ["farmland"] = Color.FromArgb(255, 205, 235, 176),
+                ["farmland"] = Color.FromArgb(255, 237, 240, 214),
+                ["orchard"] = Color.FromArgb(255, 172, 225, 161),
+                ["vineyard"] = Color.FromArgb(255, 172, 225, 161),
+                ["recreation_ground"] = Color.FromArgb(255, 223, 252, 226),
                 ["park"] = Color.FromArgb(255, 200, 250, 204),
                 ["garden"] = Color.FromArgb(255, 200, 250, 204),
+                ["nature_reserve"] = Color.FromArgb(255, 178, 223, 162),
             }
         };
 
@@ -197,13 +202,18 @@ namespace WinMaps.Rendering
             },
             ParkColors = new Dictionary<string, Color>
             {
-                ["forest"] = Color.FromArgb(255, 25, 55, 30),
-                ["wood"] = Color.FromArgb(255, 25, 55, 30),
+                ["forest"] = Color.FromArgb(255, 20, 50, 25),
+                ["wood"] = Color.FromArgb(255, 20, 50, 25),
+                ["scrub"] = Color.FromArgb(255, 28, 54, 30),
                 ["grass"] = Color.FromArgb(255, 30, 52, 32),
                 ["meadow"] = Color.FromArgb(255, 30, 52, 32),
-                ["farmland"] = Color.FromArgb(255, 35, 48, 30),
+                ["farmland"] = Color.FromArgb(255, 38, 44, 28),
+                ["orchard"] = Color.FromArgb(255, 25, 52, 28),
+                ["vineyard"] = Color.FromArgb(255, 25, 52, 28),
+                ["recreation_ground"] = Color.FromArgb(255, 28, 58, 35),
                 ["park"] = Color.FromArgb(255, 28, 58, 35),
                 ["garden"] = Color.FromArgb(255, 28, 58, 35),
+                ["nature_reserve"] = Color.FromArgb(255, 22, 55, 28),
             }
         };
 
@@ -267,13 +277,18 @@ namespace WinMaps.Rendering
             },
             ParkColors = new Dictionary<string, Color>
             {
-                ["forest"] = Color.FromArgb(255, 160, 200, 140),
-                ["wood"] = Color.FromArgb(255, 160, 200, 140),
+                ["forest"] = Color.FromArgb(255, 148, 195, 128),
+                ["wood"] = Color.FromArgb(255, 148, 195, 128),
+                ["scrub"] = Color.FromArgb(255, 170, 210, 150),
                 ["grass"] = Color.FromArgb(255, 195, 225, 175),
                 ["meadow"] = Color.FromArgb(255, 195, 225, 175),
-                ["farmland"] = Color.FromArgb(255, 210, 225, 185),
+                ["farmland"] = Color.FromArgb(255, 220, 230, 195),
+                ["orchard"] = Color.FromArgb(255, 165, 215, 150),
+                ["vineyard"] = Color.FromArgb(255, 165, 215, 150),
+                ["recreation_ground"] = Color.FromArgb(255, 195, 230, 180),
                 ["park"] = Color.FromArgb(255, 185, 220, 165),
                 ["garden"] = Color.FromArgb(255, 185, 220, 165),
+                ["nature_reserve"] = Color.FromArgb(255, 155, 210, 140),
             }
         };
 
@@ -337,17 +352,99 @@ namespace WinMaps.Rendering
             },
             ParkColors = new Dictionary<string, Color>
             {
-                ["forest"] = Color.FromArgb(255, 5, 35, 15),
-                ["wood"] = Color.FromArgb(255, 5, 35, 15),
+                ["forest"] = Color.FromArgb(255, 3, 30, 12),
+                ["wood"] = Color.FromArgb(255, 3, 30, 12),
+                ["scrub"] = Color.FromArgb(255, 6, 34, 16),
                 ["grass"] = Color.FromArgb(255, 8, 32, 18),
                 ["meadow"] = Color.FromArgb(255, 8, 32, 18),
-                ["farmland"] = Color.FromArgb(255, 12, 28, 14),
+                ["farmland"] = Color.FromArgb(255, 14, 24, 12),
+                ["orchard"] = Color.FromArgb(255, 4, 35, 16),
+                ["vineyard"] = Color.FromArgb(255, 4, 35, 16),
+                ["recreation_ground"] = Color.FromArgb(255, 5, 40, 20),
                 ["park"] = Color.FromArgb(255, 5, 40, 20),
                 ["garden"] = Color.FromArgb(255, 5, 40, 20),
+                ["nature_reserve"] = Color.FromArgb(255, 3, 38, 15),
             }
         };
 
-        public static readonly MapTheme[] AllThemes = { Light, Dark, GMaps, Neon };
+        public static readonly MapTheme Osm = new MapTheme
+        {
+            Id = "osm",
+            Name = "OSM",
+            Background = Color.FromArgb(255, 242, 239, 233),
+            GpsAccuracyFill = Color.FromArgb(40, 0, 120, 255),
+            GpsAccuracyStroke = Color.FromArgb(80, 0, 120, 255),
+            GpsDotFill = Color.FromArgb(255, 0, 120, 255),
+            GpsDotHalo = Colors.White,
+            WaterColor = Color.FromArgb(255, 170, 211, 223),
+            DefaultRoadColor = Color.FromArgb(255, 200, 200, 200),
+            DefaultRoadOutlineColor = Color.FromArgb(255, 180, 180, 180),
+            DefaultParkColor = Color.FromArgb(255, 195, 225, 178),
+            PoiDotColor = Color.FromArgb(255, 180, 60, 60),
+            PoiHaloColor = Colors.White,
+            PoiTextColor = Color.FromArgb(255, 80, 40, 40),
+            BuildingFill = Color.FromArgb(255, 217, 208, 201),
+            BuildingStroke = Color.FromArgb(255, 196, 182, 171),
+            BuildingLabelColor = Color.FromArgb(255, 100, 90, 80),
+            PoiColors = new Dictionary<string, Color>
+            {
+                ["amenity"] = Color.FromArgb(255, 180, 60, 60),
+                ["shop"] = Color.FromArgb(255, 172, 121, 44),
+                ["tourism"] = Color.FromArgb(255, 0, 146, 115),
+                ["healthcare"] = Color.FromArgb(255, 200, 40, 40),
+                ["office"] = Color.FromArgb(255, 100, 100, 160),
+            },
+            RoadColors = new Dictionary<string, Color>
+            {
+                ["motorway"] = Color.FromArgb(255, 232, 146, 162),
+                ["motorway_link"] = Color.FromArgb(255, 232, 146, 162),
+                ["trunk"] = Color.FromArgb(255, 249, 178, 156),
+                ["trunk_link"] = Color.FromArgb(255, 249, 178, 156),
+                ["primary"] = Color.FromArgb(255, 252, 214, 164),
+                ["primary_link"] = Color.FromArgb(255, 252, 214, 164),
+                ["secondary"] = Color.FromArgb(255, 243, 246, 182),
+                ["secondary_link"] = Color.FromArgb(255, 243, 246, 182),
+                ["tertiary"] = Colors.White,
+                ["tertiary_link"] = Colors.White,
+                ["residential"] = Colors.White,
+                ["living_street"] = Colors.White,
+                ["unclassified"] = Colors.White,
+                ["service"] = Colors.White,
+                ["pedestrian"] = Color.FromArgb(255, 218, 218, 235),
+                ["footway"] = Color.FromArgb(255, 250, 128, 114),
+                ["path"] = Color.FromArgb(255, 250, 128, 114),
+                ["cycleway"] = Color.FromArgb(255, 0, 68, 204),
+                ["track"] = Color.FromArgb(255, 177, 140, 75),
+            },
+            RoadOutlineColors = new Dictionary<string, Color>
+            {
+                ["motorway"] = Color.FromArgb(255, 196, 80, 108),
+                ["motorway_link"] = Color.FromArgb(255, 196, 80, 108),
+                ["trunk"] = Color.FromArgb(255, 200, 130, 100),
+                ["trunk_link"] = Color.FromArgb(255, 200, 130, 100),
+                ["primary"] = Color.FromArgb(255, 200, 170, 110),
+                ["primary_link"] = Color.FromArgb(255, 200, 170, 110),
+                ["secondary"] = Color.FromArgb(255, 210, 210, 140),
+                ["secondary_link"] = Color.FromArgb(255, 210, 210, 140),
+            },
+            ParkColors = new Dictionary<string, Color>
+            {
+                ["forest"] = Color.FromArgb(255, 140, 196, 124),
+                ["wood"] = Color.FromArgb(255, 140, 196, 124),
+                ["scrub"] = Color.FromArgb(255, 168, 209, 150),
+                ["grass"] = Color.FromArgb(255, 205, 235, 176),
+                ["meadow"] = Color.FromArgb(255, 205, 235, 176),
+                ["farmland"] = Color.FromArgb(255, 237, 240, 214),
+                ["orchard"] = Color.FromArgb(255, 172, 225, 161),
+                ["vineyard"] = Color.FromArgb(255, 172, 225, 161),
+                ["recreation_ground"] = Color.FromArgb(255, 207, 252, 210),
+                ["park"] = Color.FromArgb(255, 200, 250, 204),
+                ["garden"] = Color.FromArgb(255, 200, 250, 204),
+                ["nature_reserve"] = Color.FromArgb(255, 160, 215, 145),
+            }
+        };
+
+        public static readonly MapTheme[] AllThemes = { Light, Dark, GMaps, Neon, Osm };
 
         public static MapTheme GetById(string id)
         {
