@@ -2,6 +2,7 @@ package main
 
 import (
 	"compress/gzip"
+	pgzip "github.com/klauspost/pgzip"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
@@ -717,8 +718,12 @@ func compressDB(dbPath, gzPath string) error {
 	}
 	defer out.Close()
 
-	gz, err := gzip.NewWriterLevel(out, gzip.DefaultCompression)
+	gz, err := pgzip.NewWriterLevel(out, gzip.DefaultCompression)
 	if err != nil {
+		return err
+	}
+	// Use all available cores; each block is compressed in a separate goroutine
+	if err := gz.SetConcurrency(1<<20, runtime.NumCPU()); err != nil {
 		return err
 	}
 

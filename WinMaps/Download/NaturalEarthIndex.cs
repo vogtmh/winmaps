@@ -80,6 +80,11 @@ namespace WinMaps.Download
                 string isoA2 = props.GetNamedString("ISO_A2", "");
                 string continent = props.GetNamedString("CONTINENT", "");
 
+                // Russia is listed as "Europe" in Natural Earth but spans both continents.
+                // Give it its own entry so Europe can be browsed without Russia dominating the view.
+                if (isoA2 == "RU")
+                    continent = "Russia";
+
                 if (string.IsNullOrEmpty(name)) continue;
                 if (continent == "Seven seas (open ocean)") continue;
                 if (continent == "Antarctica") continue;

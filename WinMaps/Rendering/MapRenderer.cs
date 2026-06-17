@@ -560,8 +560,8 @@ namespace WinMaps.Rendering
             using (var textFormat = new CanvasTextFormat
             {
                 FontSize = fontSize,
-                HorizontalAlignment = CanvasHorizontalAlignment.Left,
-                VerticalAlignment = CanvasVerticalAlignment.Center
+                HorizontalAlignment = CanvasHorizontalAlignment.Center,
+                VerticalAlignment = CanvasVerticalAlignment.Bottom
             })
             {
                 foreach (var poi in _cachedPois)
@@ -598,8 +598,8 @@ namespace WinMaps.Rendering
                             if (!occupied[cellIdx])
                             {
                                 occupied[cellIdx] = true;
-                                float textX = x + dotRadius + 3;
-                                float textY = y;
+                                float textX = x;
+                                float textY = y - dotRadius - 2;
 
                                 // Text with halo effect: draw dark outline then light text
                                 ds.DrawText(label, textX - 1, textY, _theme.PoiHaloColor, textFormat);
