@@ -171,9 +171,14 @@
                         <Button Grid.Column="0" Content="＋ Add Map"
                                 HorizontalAlignment="Stretch"
                                 Click="BtnAddMap_Click" />
-                        <Button Grid.Column="2" Content="🌍 Map View"
+                        <Button Grid.Column="2"
                                 HorizontalAlignment="Stretch"
-                                Click="BtnWorldMap_Click" />
+                                Click="BtnWorldMap_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE909;" FontFamily="Segoe MDL2 Assets" FontSize="16" VerticalAlignment="Center" />
+                                <TextBlock Text="Map View" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
                     </Grid>
                 </StackPanel>
             </Grid>
