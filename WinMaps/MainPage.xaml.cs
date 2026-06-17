@@ -847,7 +847,6 @@ namespace WinMaps
                 _worldMapNECountries = _naturalEarthIndex.GetAllCountries();
                 _worldMapViewport = (-60, -180, 85, 180);
                 TxtWorldMapTitle.Text = "World";
-                BtnWorldMapBack.Content = "← My Maps";
             }
             else if (level == "continent")
             {
@@ -858,7 +857,6 @@ namespace WinMaps
                 ComputeViewportFromNE(_worldMapNECountries);
 
                 TxtWorldMapTitle.Text = param;
-                BtnWorldMapBack.Content = "←";
             }
             else if (level == "country")
             {
@@ -907,7 +905,6 @@ namespace WinMaps
                     }
 
                     TxtWorldMapTitle.Text = gfRegion.Name;
-                    BtnWorldMapBack.Content = "←";
                 }
                 else
                 {

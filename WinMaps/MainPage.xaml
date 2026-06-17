@@ -114,12 +114,17 @@
                 </Grid.RowDefinitions>
 
                 <!-- Header -->
-                <Grid Grid.Row="0" Padding="16,12" Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
-                    <TextBlock Text="My Maps" FontSize="20" FontWeight="SemiBold"
+                <Grid Grid.Row="0" Padding="8,12,16,12" Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Background="Transparent" Margin="0,0,8,0"
+                            Click="BtnCloseManager_Click">
+                        <FontIcon Glyph="&#xE72B;" FontFamily="Segoe MDL2 Assets" FontSize="16" />
+                    </Button>
+                    <TextBlock Grid.Column="1" Text="My Maps" FontSize="20" FontWeight="SemiBold"
                                VerticalAlignment="Center" />
-                    <Button Content="✕" HorizontalAlignment="Right"
-                            FontSize="16" Background="Transparent"
-                            Click="BtnCloseManager_Click" />
                 </Grid>
 
                 <!-- Downloaded maps list -->
@@ -196,17 +201,13 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <Button x:Name="BtnWorldMapBack" Content="← My Maps" FontSize="16"
-                            Background="Transparent" Margin="0,0,8,0"
-                            Click="BtnWorldMapBack_Click" />
+                    </Grid.ColumnDefinitions> Background="Transparent" Margin="0,0,8,0"
+                            Click="BtnWorldMapBack_Click">
+                        <FontIcon Glyph="&#xE72B;" FontFamily="Segoe MDL2 Assets" FontSize="16" />
+                    </Button>
                     <TextBlock x:Name="TxtWorldMapTitle" Text="World"
                                Grid.Column="1" FontSize="16" FontWeight="SemiBold"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                    <Button Content="✕" Grid.Column="2"
-                            FontSize="16" Background="Transparent"
-                            Click="BtnCloseManager_Click" />
                 </Grid>
 
                 <!-- Canvas for region polygons + loading indicator -->
@@ -234,17 +235,14 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Button x:Name="BtnBrowseBack" Content="←" FontSize="18"
-                            Background="Transparent" Margin="0,0,8,0"
-                            Click="BtnBrowseBack_Click" />
+                    <Button x:Name="BtnBrowseBack" Background="Transparent" Margin="0,0,8,0"
+                            Click="BtnBrowseBack_Click">
+                        <FontIcon Glyph="&#xE72B;" FontFamily="Segoe MDL2 Assets" FontSize="16" />
+                    </Button>
                     <TextBlock x:Name="TxtBrowseTitle" Text="Select Region"
                                Grid.Column="1" FontSize="16" FontWeight="SemiBold"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                    <Button Content="✕" Grid.Column="2"
-                            FontSize="16" Background="Transparent"
-                            Click="BtnCloseManager_Click" />
                 </Grid>
 
                 <!-- Region list -->
@@ -289,13 +287,18 @@
             </Grid.RowDefinitions>
 
             <!-- Header -->
-            <Grid Grid.Row="0" Padding="16,12"
+            <Grid Grid.Row="0" Padding="8,12,16,12"
                   Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
-                <TextBlock Text="Map Theme" FontSize="20" FontWeight="SemiBold"
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Background="Transparent" Margin="0,0,8,0"
+                        Click="BtnCloseTheme_Click">
+                    <FontIcon Glyph="&#xE72B;" FontFamily="Segoe MDL2 Assets" FontSize="16" />
+                </Button>
+                <TextBlock Grid.Column="1" Text="Map Theme" FontSize="20" FontWeight="SemiBold"
                            VerticalAlignment="Center" />
-                <Button Content="✕" HorizontalAlignment="Right"
-                        FontSize="16" Background="Transparent"
-                        Click="BtnCloseTheme_Click" />
             </Grid>
 
             <!-- Theme list -->
