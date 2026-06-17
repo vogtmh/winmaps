@@ -240,9 +240,6 @@ namespace WinMaps
                     {
                         Log("Opening DB...");
                         await _db.OpenAsync();
-                        Log("Checking integrity...");
-                        if (!_db.CheckIntegrity())
-                            throw new InvalidOperationException("Integrity check failed.");
                         Log("Checking data...");
                         if (_db.HasData())
                         {
