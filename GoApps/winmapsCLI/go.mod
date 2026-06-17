@@ -3,7 +3,7 @@ module winmaps_prebuild
 go 1.22
 
 require (
-	github.com/thomersch/gosmparse v0.4.0
+	github.com/thomersch/gosmparse v1.1.0
 	modernc.org/sqlite v1.29.6
 )
 
