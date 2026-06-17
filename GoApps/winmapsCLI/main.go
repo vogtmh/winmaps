@@ -15,6 +15,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/thomersch/gosmparse"
@@ -370,9 +372,12 @@ func createIndexes(db *sql.DB) {
 
 // ---------------------------------------------------------------------------
 // gosmparse handlers for two-pass import (pure Go, no CGO)
+// gosmparse calls ReadNode/ReadWay from multiple goroutines concurrently,
+// so all shared state must be protected.
 // ---------------------------------------------------------------------------
 
 type pass1Handler struct {
+	mu       sync.Mutex
 	nodeIDs  []int64
 	scanWays int64
 }
@@ -383,10 +388,12 @@ func (h *pass1Handler) ReadWay(w gosmparse.Way) {
 	if _, _, ok := classifyWay(w.Tags); !ok {
 		return
 	}
+	h.mu.Lock()
 	for _, nid := range w.NodeIDs {
 		h.nodeIDs = append(h.nodeIDs, nid)
 	}
 	h.scanWays++
+	h.mu.Unlock()
 }
 
 const (
@@ -394,41 +401,52 @@ const (
 	poiInsertSQL = `INSERT OR IGNORE INTO pois(id, type, subtype, name, lat, lon) VALUES(?, ?, ?, ?, ?, ?)`
 )
 
+type wayRow struct {
+	id                         int64
+	wayType                    int
+	subType                    string
+	geo                        []byte
+	minLat, maxLat, minLon, maxLon float64
+}
+
+type poiRow struct {
+	id      int64
+	pt, ps  string
+	pn      string
+	lat     float64
+	lon     float64
+}
+
+// pass2Handler is called concurrently by gosmparse.
+// It only reads shared read-only slices (nodeIDs, latBuf, lonBuf) and
+// pushes results onto buffered channels consumed by a single writer goroutine.
 type pass2Handler struct {
-	nodeIDs    []int64
-	latBuf     []float64
-	lonBuf     []float64
-	db         *sql.DB
-	tx         *sql.Tx
-	wayStmt    *sql.Stmt
-	poiStmt    *sql.Stmt
-	nodeCount  int64
-	wayCount   int64
-	poiCount   int64
-	batchCount int64
-	lastReport time.Time
+	nodeIDs []int64
+	latBuf  []float64
+	lonBuf  []float64
+	wayCh   chan wayRow
+	poiCh   chan poiRow
+	// atomic counters safe for concurrent increment
+	nodeCount int64
+	wayCount  int64
+	poiCount  int64
 }
 
 func (h *pass2Handler) ReadRelation(r gosmparse.Relation) {}
 
 func (h *pass2Handler) ReadNode(n gosmparse.Node) {
-	h.nodeCount++
+	atomic.AddInt64(&h.nodeCount, 1)
 	if idx, found := slices.BinarySearch(h.nodeIDs, n.ID); found {
+		// latBuf/lonBuf are indexed by unique position — each goroutine
+		// writes a different slot, so no mutex needed.
 		h.latBuf[idx] = n.Lat
 		h.lonBuf[idx] = n.Lon
 	}
 	if len(n.Tags) > 0 {
 		if pt, ps, pn, ok := classifyPoi(n.Tags); ok {
-			h.poiStmt.Exec(n.ID, pt, ps, nullStr(pn), n.Lat, n.Lon)
-			h.poiCount++
-			h.batchCount++
-			h.maybeFlush()
+			h.poiCh <- poiRow{n.ID, pt, ps, pn, n.Lat, n.Lon}
+			atomic.AddInt64(&h.poiCount, 1)
 		}
-	}
-	if time.Since(h.lastReport) > 2*time.Second {
-		fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk  ",
-			h.nodeCount/1000, h.wayCount/1000, h.poiCount/1000)
-		h.lastReport = time.Now()
 	}
 }
 
@@ -447,41 +465,18 @@ func (h *pass2Handler) ReadWay(w gosmparse.Way) {
 			lon := h.lonBuf[idx]
 			lats = append(lats, lat)
 			lons = append(lons, lon)
-			if lat < minLat {
-				minLat = lat
-			}
-			if lat > maxLat {
-				maxLat = lat
-			}
-			if lon < minLon {
-				minLon = lon
-			}
-			if lon > maxLon {
-				maxLon = lon
-			}
+			if lat < minLat { minLat = lat }
+			if lat > maxLat { maxLat = lat }
+			if lon < minLon { minLon = lon }
+			if lon > maxLon { maxLon = lon }
 		}
 	}
 	if len(lats) < 2 {
 		return
 	}
 	geo := encodeGeometry(lats, lons)
-	h.wayStmt.Exec(w.ID, wt, ws, geo, minLat, maxLat, minLon, maxLon)
-	h.wayCount++
-	h.batchCount++
-	h.maybeFlush()
-}
-
-func (h *pass2Handler) maybeFlush() {
-	if h.batchCount < 500_000 {
-		return
-	}
-	h.wayStmt.Close()
-	h.poiStmt.Close()
-	h.tx.Commit()
-	h.tx, _ = h.db.Begin()
-	h.wayStmt, _ = h.tx.Prepare(wayInsertSQL)
-	h.poiStmt, _ = h.tx.Prepare(poiInsertSQL)
-	h.batchCount = 0
+	h.wayCh <- wayRow{int64(w.ID), wt, ws, geo, minLat, maxLat, minLon, maxLon}
+	atomic.AddInt64(&h.wayCount, 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -538,45 +533,102 @@ func importPbf(pbfPath, dbPath string) error {
 	}
 	defer f2.Close()
 
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	wayStmt, err := tx.Prepare(wayInsertSQL)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	poiStmt, err := tx.Prepare(poiInsertSQL)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
+	// Buffered channels decouple gosmparse goroutines from the single DB writer.
+	wayCh := make(chan wayRow, 64*1024)
+	poiCh := make(chan poiRow, 16*1024)
 
 	h2 := &pass2Handler{
-		nodeIDs:    nodeIDs,
-		latBuf:     latBuf,
-		lonBuf:     lonBuf,
-		db:         db,
-		tx:         tx,
-		wayStmt:    wayStmt,
-		poiStmt:    poiStmt,
-		lastReport: time.Now(),
+		nodeIDs: nodeIDs,
+		latBuf:  latBuf,
+		lonBuf:  lonBuf,
+		wayCh:   wayCh,
+		poiCh:   poiCh,
 	}
+
+	// Single writer goroutine — all DB access is serialized here.
+	var writeErr error
+	var writerDone sync.WaitGroup
+	writerDone.Add(1)
+	go func() {
+		defer writerDone.Done()
+		tx, err := db.Begin()
+		if err != nil {
+			writeErr = err
+			// drain channels so producers don't block
+			for range wayCh {}
+			for range poiCh {}
+			return
+		}
+		wayStmt, _ := tx.Prepare(wayInsertSQL)
+		poiStmt, _ := tx.Prepare(poiInsertSQL)
+		var batchCount int64
+		lastReport := time.Now()
+
+		flush := func() {
+			wayStmt.Close()
+			poiStmt.Close()
+			tx.Commit()
+			tx, _ = db.Begin()
+			wayStmt, _ = tx.Prepare(wayInsertSQL)
+			poiStmt, _ = tx.Prepare(poiInsertSQL)
+			batchCount = 0
+		}
+
+		for {
+			// Drain whichever channel has data, prioritise neither.
+			select {
+			case r, ok := <-wayCh:
+				if !ok {
+					wayCh = nil
+					continue
+				}
+				wayStmt.Exec(r.id, r.wayType, r.subType, r.geo, r.minLat, r.maxLat, r.minLon, r.maxLon)
+				batchCount++
+			case r, ok := <-poiCh:
+				if !ok {
+					poiCh = nil
+					continue
+				}
+				poiStmt.Exec(r.id, r.pt, r.ps, nullStr(r.pn), r.lat, r.lon)
+				batchCount++
+			}
+			if wayCh == nil && poiCh == nil {
+				break
+			}
+			if batchCount >= 500_000 {
+				flush()
+			}
+			if time.Since(lastReport) > 2*time.Second {
+				nc := atomic.LoadInt64(&h2.nodeCount)
+				wc := atomic.LoadInt64(&h2.wayCount)
+				pc := atomic.LoadInt64(&h2.poiCount)
+				fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk  ", nc/1000, wc/1000, pc/1000)
+				lastReport = time.Now()
+			}
+		}
+		wayStmt.Close()
+		poiStmt.Close()
+		tx.Commit()
+	}()
 
 	if err := gosmparse.NewDecoder(f2).Parse(h2); err != nil {
-		h2.wayStmt.Close()
-		h2.poiStmt.Close()
-		h2.tx.Rollback()
+		close(wayCh)
+		close(poiCh)
+		writerDone.Wait()
 		return err
 	}
-	h2.wayStmt.Close()
-	h2.poiStmt.Close()
-	h2.tx.Commit()
+	close(wayCh)
+	close(poiCh)
+	writerDone.Wait()
+	if writeErr != nil {
+		return writeErr
+	}
 
 	pass2Dur := time.Since(pass2Start)
-	fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk (%s)\n",
-		h2.nodeCount/1000, h2.wayCount/1000, h2.poiCount/1000, pass2Dur.Round(time.Millisecond))
+	nc := atomic.LoadInt64(&h2.nodeCount)
+	wc := atomic.LoadInt64(&h2.wayCount)
+	pc := atomic.LoadInt64(&h2.poiCount)
+	fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk (%s)\n", nc/1000, wc/1000, pc/1000, pass2Dur.Round(time.Millisecond))
 
 	// Free memory before indexing
 	nodeIDs = nil
@@ -602,9 +654,9 @@ func importPbf(pbfPath, dbPath string) error {
 	fmt.Println("=== Import Summary ===")
 	fmt.Printf("  PBF size:    %.1f MB\n", float64(pbfSize)/1048576)
 	fmt.Printf("  DB size:     %.1f MB\n", float64(dbStat.Size())/1048576)
-	fmt.Printf("  Ways:        %d\n", h2.wayCount)
-	fmt.Printf("  POIs:        %d\n", h2.poiCount)
-	fmt.Printf("  Nodes read:  %d\n", h2.nodeCount)
+	fmt.Printf("  Ways:        %d\n", wc)
+	fmt.Printf("  POIs:        %d\n", pc)
+	fmt.Printf("  Nodes read:  %d\n", nc)
 	fmt.Printf("  Pass 1:      %s\n", pass1Dur.Round(time.Millisecond))
 	fmt.Printf("  Pass 2:      %s\n", pass2Dur.Round(time.Millisecond))
 	fmt.Printf("  Indexing:    %s\n", indexDur.Round(time.Millisecond))
