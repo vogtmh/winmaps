@@ -358,6 +358,37 @@ func encodeGeometry(lats, lons []float64) []byte {
 	return buf
 }
 
+// simplifyGeometry drops points closer than minDist degrees apart.
+// Always keeps first and last point. Returns nil if no meaningful reduction.
+func simplifyGeometry(lats, lons []float64, minDist float64) []byte {
+	if len(lats) <= 4 {
+		return nil
+	}
+	minDistSq := minDist * minDist
+	sLats := make([]float64, 0, len(lats)/2)
+	sLons := make([]float64, 0, len(lons)/2)
+	sLats = append(sLats, lats[0])
+	sLons = append(sLons, lons[0])
+	lastLat, lastLon := lats[0], lons[0]
+
+	for i := 1; i < len(lats)-1; i++ {
+		dLat := lats[i] - lastLat
+		dLon := lons[i] - lastLon
+		if dLat*dLat+dLon*dLon >= minDistSq {
+			sLats = append(sLats, lats[i])
+			sLons = append(sLons, lons[i])
+			lastLat, lastLon = lats[i], lons[i]
+		}
+	}
+	sLats = append(sLats, lats[len(lats)-1])
+	sLons = append(sLons, lons[len(lons)-1])
+
+	if len(sLats) >= len(lats)-2 {
+		return nil
+	}
+	return encodeGeometry(sLats, sLons)
+}
+
 // ---------------------------------------------------------------------------
 // Database setup (matches C# MapDatabase schema exactly)
 // ---------------------------------------------------------------------------
@@ -388,6 +419,7 @@ func createDB(dbPath string) (*sql.DB, error) {
 			type INTEGER NOT NULL,
 			subtype TEXT,
 			geometry BLOB NOT NULL,
+			geometry_simple BLOB,
 			min_lat REAL NOT NULL,
 			max_lat REAL NOT NULL,
 			min_lon REAL NOT NULL,
@@ -458,7 +490,7 @@ func (h *pass1Handler) ReadWay(w gosmparse.Way) {
 }
 
 const (
-	wayInsertSQL   = `INSERT OR IGNORE INTO ways(id, type, subtype, geometry, min_lat, max_lat, min_lon, max_lon) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`
+	wayInsertSQL   = `INSERT OR IGNORE INTO ways(id, type, subtype, geometry, geometry_simple, min_lat, max_lat, min_lon, max_lon) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	poiInsertSQL   = `INSERT OR IGNORE INTO pois(id, type, subtype, name, lat, lon) VALUES(?, ?, ?, ?, ?, ?)`
 	placeInsertSQL = `INSERT OR IGNORE INTO places(id, place_type, name, lat, lon) VALUES(?, ?, ?, ?, ?)`
 )
@@ -468,6 +500,7 @@ type wayRow struct {
 	wayType                    int
 	subType                    string
 	geo                        []byte
+	geoSimple                  []byte
 	minLat, maxLat, minLon, maxLon float64
 }
 
@@ -550,7 +583,8 @@ func (h *pass2Handler) ReadWay(w gosmparse.Way) {
 		return
 	}
 	geo := encodeGeometry(lats, lons)
-	h.wayCh <- wayRow{int64(w.ID), wt, ws, geo, minLat, maxLat, minLon, maxLon}
+	geoSimple := simplifyGeometry(lats, lons, 0.0003) // ~33m ≈ 4px at Z12
+	h.wayCh <- wayRow{int64(w.ID), wt, ws, geo, geoSimple, minLat, maxLat, minLon, maxLon}
 	atomic.AddInt64(&h.wayCount, 1)
 }
 
@@ -662,7 +696,7 @@ func importPbf(pbfPath, dbPath string) error {
 					wayCh = nil
 					continue
 				}
-				wayStmt.Exec(r.id, r.wayType, r.subType, r.geo, r.minLat, r.maxLat, r.minLon, r.maxLon)
+				wayStmt.Exec(r.id, r.wayType, r.subType, r.geo, r.geoSimple, r.minLat, r.maxLat, r.minLon, r.maxLon)
 				batchCount++
 			case r, ok := <-poiCh:
 				if !ok {

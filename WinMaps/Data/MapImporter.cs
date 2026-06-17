@@ -135,7 +135,11 @@ namespace WinMaps.Data
                             return;
 
                         byte[] geometry = MapDatabase.EncodeGeometry(points);
-                        db.InsertWay(way.Id, (int)way.Type, way.SubType, geometry,
+
+                        // Pre-simplify geometry for low-zoom rendering (~0.0003° ≈ 33m ≈ 4px at Z12)
+                        byte[] geoSimple = MapDatabase.SimplifyGeometry(points, 0.0003);
+
+                        db.InsertWay(way.Id, (int)way.Type, way.SubType, geometry, geoSimple,
                             minLat, maxLat, minLon, maxLon, tx);
 
                         wayCount++;

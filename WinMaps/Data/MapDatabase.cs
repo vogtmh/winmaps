@@ -48,6 +48,7 @@ namespace WinMaps.Data
                     type INTEGER NOT NULL,
                     subtype TEXT,
                     geometry BLOB NOT NULL,
+                    geometry_simple BLOB,
                     min_lat REAL NOT NULL,
                     max_lat REAL NOT NULL,
                     min_lon REAL NOT NULL,
@@ -207,12 +208,13 @@ namespace WinMaps.Data
         public void PrepareInsertStatement()
         {
             _insertWayCmd = _connection.CreateCommand();
-            _insertWayCmd.CommandText = @"INSERT OR IGNORE INTO ways(id, type, subtype, geometry, min_lat, max_lat, min_lon, max_lon) 
-                                          VALUES(@id, @type, @sub, @geo, @minLat, @maxLat, @minLon, @maxLon)";
+            _insertWayCmd.CommandText = @"INSERT OR IGNORE INTO ways(id, type, subtype, geometry, geometry_simple, min_lat, max_lat, min_lon, max_lon) 
+                                          VALUES(@id, @type, @sub, @geo, @geoSimple, @minLat, @maxLat, @minLon, @maxLon)";
             _insertWayCmd.Parameters.Add(new SqliteParameter("@id", SqliteType.Integer));
             _insertWayCmd.Parameters.Add(new SqliteParameter("@type", SqliteType.Integer));
             _insertWayCmd.Parameters.Add(new SqliteParameter("@sub", SqliteType.Text));
             _insertWayCmd.Parameters.Add(new SqliteParameter("@geo", SqliteType.Blob));
+            _insertWayCmd.Parameters.Add(new SqliteParameter("@geoSimple", SqliteType.Blob));
             _insertWayCmd.Parameters.Add(new SqliteParameter("@minLat", SqliteType.Real));
             _insertWayCmd.Parameters.Add(new SqliteParameter("@maxLat", SqliteType.Real));
             _insertWayCmd.Parameters.Add(new SqliteParameter("@minLon", SqliteType.Real));
@@ -251,7 +253,7 @@ namespace WinMaps.Data
             _insertPlaceCmd = null;
         }
 
-        public void InsertWay(long id, int type, string subType, byte[] geometry,
+        public void InsertWay(long id, int type, string subType, byte[] geometry, byte[] geometrySimple,
             double minLat, double maxLat, double minLon, double maxLon, SqliteTransaction tx)
         {
             _insertWayCmd.Transaction = tx;
@@ -259,6 +261,7 @@ namespace WinMaps.Data
             _insertWayCmd.Parameters["@type"].Value = type;
             _insertWayCmd.Parameters["@sub"].Value = (object)subType ?? DBNull.Value;
             _insertWayCmd.Parameters["@geo"].Value = geometry;
+            _insertWayCmd.Parameters["@geoSimple"].Value = (object)geometrySimple ?? DBNull.Value;
             _insertWayCmd.Parameters["@minLat"].Value = minLat;
             _insertWayCmd.Parameters["@maxLat"].Value = maxLat;
             _insertWayCmd.Parameters["@minLon"].Value = minLon;
@@ -382,11 +385,13 @@ namespace WinMaps.Data
             // Build SQL with LOD conditions pushed into WHERE clause
             // Road=0, Water=1, Park=2
             // Area size uses (max-min) extent in degrees as a proxy for screen-space size
+            // For Z<14, use COALESCE(geometry_simple, geometry) to read the smaller pre-simplified blob
+            string geoCol = zoom < 14 ? "COALESCE(geometry_simple, geometry)" : "geometry";
             string sql;
             if (zoom < 4)
             {
                 // Continental view: motorway only + huge areas
-                sql = @"SELECT type, subtype, geometry FROM ways
+                sql = $@"SELECT type, subtype, {geoCol} FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
@@ -397,7 +402,7 @@ namespace WinMaps.Data
             else if (zoom < 6)
             {
                 // Country view: motorway/trunk + very large areas
-                sql = @"SELECT type, subtype, geometry FROM ways
+                sql = $@"SELECT type, subtype, {geoCol} FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
@@ -408,7 +413,7 @@ namespace WinMaps.Data
             else if (zoom < 8)
             {
                 // Regional view: motorway/trunk + large areas
-                sql = @"SELECT type, subtype, geometry FROM ways
+                sql = $@"SELECT type, subtype, {geoCol} FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
@@ -419,7 +424,7 @@ namespace WinMaps.Data
             else if (zoom < 10)
             {
                 // Add primary roads + large areas + village-scale buildings
-                sql = @"SELECT type, subtype, geometry FROM ways
+                sql = $@"SELECT type, subtype, {geoCol} FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
@@ -431,7 +436,7 @@ namespace WinMaps.Data
             else if (zoom < 12)
             {
                 // Add secondary roads, skip minor paths/tracks/service; medium+ areas + buildings
-                sql = @"SELECT type, subtype, geometry FROM ways
+                sql = $@"SELECT type, subtype, {geoCol} FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
@@ -444,7 +449,7 @@ namespace WinMaps.Data
             else if (zoom < 13)
             {
                 // Add tertiary/residential, track only (no footway/path/cycleway); smaller areas + buildings
-                sql = @"SELECT type, subtype, geometry FROM ways
+                sql = $@"SELECT type, subtype, {geoCol} FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
@@ -456,7 +461,7 @@ namespace WinMaps.Data
             else if (zoom < 14)
             {
                 // All roads except footway/path/cycleway; small areas + buildings
-                sql = @"SELECT type, subtype, geometry FROM ways
+                sql = $@"SELECT type, subtype, {geoCol} FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
@@ -465,9 +470,21 @@ namespace WinMaps.Data
                             OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.000001)
                           )";
             }
+            else if (zoom < 16)
+            {
+                // Z14-15: skip tiny buildings and very small areas, exclude service roads
+                sql = $@"SELECT type, subtype, {geoCol} FROM ways
+                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
+                          AND max_lon >= @minLon AND min_lon <= @maxLon
+                          AND (
+                            (type = 0 AND subtype NOT IN ('service'))
+                            OR (type = 1 OR type = 2)
+                            OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.0000001)
+                          )";
+            }
             else
             {
-                // Show everything
+                // Z16+: Show everything
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon";
@@ -742,6 +759,37 @@ namespace WinMaps.Data
                 double lon = BitConverter.ToDouble(blob, off + 8);
                 output.Add((lat, lon));
             }
+        }
+
+        /// <summary>
+        /// Simplifies a point list by dropping points closer than minDist (in degrees).
+        /// Always keeps first and last point. Returns null if no simplification possible.
+        /// </summary>
+        public static byte[] SimplifyGeometry(List<(double lat, double lon)> points, double minDist)
+        {
+            if (points.Count <= 4) return null; // already simple enough
+
+            double minDistSq = minDist * minDist;
+            var simplified = new List<(double lat, double lon)>(points.Count / 2);
+            simplified.Add(points[0]);
+            double lastLat = points[0].lat, lastLon = points[0].lon;
+
+            for (int i = 1; i < points.Count - 1; i++)
+            {
+                double dLat = points[i].lat - lastLat;
+                double dLon = points[i].lon - lastLon;
+                if (dLat * dLat + dLon * dLon >= minDistSq)
+                {
+                    simplified.Add(points[i]);
+                    lastLat = points[i].lat;
+                    lastLon = points[i].lon;
+                }
+            }
+            simplified.Add(points[points.Count - 1]);
+
+            // Only store if we actually reduced the point count meaningfully
+            if (simplified.Count >= points.Count - 2) return null;
+            return EncodeGeometry(simplified);
         }
 
         private void Execute(string sql)
