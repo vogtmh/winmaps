@@ -1,6 +1,11 @@
 # Misc tools
 misc/
 
+# Go CLI tool — binaries and output
+GoApps/winmapsCLI/winmapsCLI
+GoApps/winmapsCLI/winmapsCLI.exe
+GoApps/winmapsCLI/output/
+
 # Build results
 [Dd]ebug/
 [Rr]elease/
