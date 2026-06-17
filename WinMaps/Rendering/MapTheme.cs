@@ -87,6 +87,9 @@ namespace WinMaps.Rendering
             BuildingStroke = Color.FromArgb(255, 185, 178, 168),
             BuildingLabelColor = Color.FromArgb(255, 100, 90, 80),
             PoiColors = new Dictionary<string, Color>
+            {
+                ["amenity"] = Color.FromArgb(255, 180, 60, 60),
+                ["shop"] = Color.FromArgb(255, 172, 121, 44),
                 ["tourism"] = Color.FromArgb(255, 0, 146, 115),
                 ["healthcare"] = Color.FromArgb(255, 200, 40, 40),
                 ["office"] = Color.FromArgb(255, 100, 100, 160),
