@@ -250,11 +250,7 @@
 
   <!-- Embed build date as a compile-time constant -->
   <Target Name="GenerateBuildInfo" BeforeTargets="BeforeBuild">
-    <PropertyGroup>
-      <_BuildDate>$([System.DateTime]::UtcNow.ToString('d. MMM yyyy'))</_BuildDate>
-    </PropertyGroup>
-    <WriteLinesToFile File="$(MSBuildProjectDirectory)\Properties\BuildInfo.cs" Overwrite="true"
-      Lines="namespace WinMaps { internal static class BuildInfo { public const string Date = &quot;$(_BuildDate)&quot;%3b } }" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Properties\GenerateBuildInfo.ps1&quot;" />
   </Target>
 
 </Project>
