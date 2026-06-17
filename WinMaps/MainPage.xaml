@@ -44,7 +44,7 @@
                 Margin="12,0,0,12"
                 Click="BtnMapManager_Click"
                 Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
-            <TextBlock Text="🗺" FontSize="18" />
+            <FontIcon Glyph="&#xE700;" FontFamily="Segoe MDL2 Assets" FontSize="18" />
         </Button>
 
         <!-- Theme selector button (upper-left, below status bar) -->
@@ -53,7 +53,7 @@
                 Margin="12,40,0,0"
                 Click="BtnThemeSelector_Click"
                 Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
-            <TextBlock Text="◫" FontSize="20" />
+            <FontIcon Glyph="&#xE81E;" FontFamily="Segoe MDL2 Assets" FontSize="18" />
         </Button>
 
         <!-- Status bar (top) -->
