@@ -1464,7 +1464,6 @@ namespace WinMaps
             if (parentId == null)
             {
                 TxtBrowseTitle.Text = "Select Region";
-                BtnBrowseBack.Visibility = Visibility.Collapsed;
             }
             else
             {
@@ -1520,6 +1519,14 @@ namespace WinMaps
             if (_browseStack.Count > 0)
             {
                 ShowBrowseLevel(_browseStack.Peek());
+            }
+            else if (BrowseView.Visibility == Visibility.Visible &&
+                     MyMapsView.Visibility == Visibility.Collapsed)
+            {
+                // At continent root — go back to My Maps
+                BrowseView.Visibility = Visibility.Collapsed;
+                MyMapsView.Visibility = Visibility.Visible;
+                RefreshMyMapsList();
             }
             else
             {
