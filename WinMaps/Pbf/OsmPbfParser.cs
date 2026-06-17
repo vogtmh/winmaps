@@ -48,6 +48,14 @@ namespace WinMaps.Pbf
         public event Action<OsmPoi> OnPoi;
         public event Action<long, long> OnProgress; // bytesRead, totalBytes
 
+        private static readonly HashSet<string> GenericPoiSubTypes = new HashSet<string>
+        {
+            "information", "post_box", "recycling", "bench", "telephone",
+            "vending_machine", "waste_basket", "bicycle_parking", "waste_disposal",
+            "letter_box", "drinking_water", "fire_hydrant", "bollard",
+            "surveillance", "street_lamp", "clock", "manhole"
+        };
+
         private static readonly HashSet<string> PoiKeys = new HashSet<string>
         {
             "amenity", "shop", "tourism", "healthcare", "office"
@@ -443,6 +451,10 @@ namespace WinMaps.Pbf
 
                     if (poiType != null)
                     {
+                        // Skip generic subtypes that carry no useful information without a name
+                        if (string.IsNullOrEmpty(poiName) && GenericPoiSubTypes.Contains(poiSubType))
+                            goto skipPoi;
+
                         OnPoi.Invoke(new OsmPoi
                         {
                             Id = runId,
@@ -453,6 +465,7 @@ namespace WinMaps.Pbf
                             Lon = lon
                         });
                     }
+                    skipPoi:;
                 }
             }
         }

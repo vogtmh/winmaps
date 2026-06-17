@@ -534,6 +534,16 @@ namespace WinMaps.Rendering
 
         // ---- POI rendering ----
 
+        // POI subtypes that carry no useful information without a real name
+        private static readonly System.Collections.Generic.HashSet<string> _genericPoiSubTypes =
+            new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "information", "post_box", "recycling", "bench", "telephone",
+                "vending_machine", "waste_basket", "bicycle_parking", "waste_disposal",
+                "letter_box", "drinking_water", "fire_hydrant", "bollard",
+                "surveillance", "street_lamp", "clock", "manhole"
+            };
+
         private void DrawPois(CanvasDrawingSession ds)
         {
             if (_cachedPois == null || _cachedPois.Count == 0) return;
@@ -556,6 +566,11 @@ namespace WinMaps.Rendering
             {
                 foreach (var poi in _cachedPois)
                 {
+                    // Skip POIs with no real name if their subtype is generic/uninformative
+                    bool hasName = !string.IsNullOrEmpty(poi.Name);
+                    if (!hasName && _genericPoiSubTypes.Contains(poi.SubType))
+                        continue;
+
                     var (x, y) = _viewport.GeoToScreen(poi.Lat, poi.Lon);
 
                     // Skip if off screen

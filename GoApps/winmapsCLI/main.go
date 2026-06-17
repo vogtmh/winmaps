@@ -290,6 +290,14 @@ func classifyWay(tags map[string]string) (wayType int, subType string, ok bool) 
 	return 0, "", false
 }
 
+var genericPoiSubTypes = map[string]bool{
+	"information": true, "post_box": true, "recycling": true, "bench": true,
+	"telephone": true, "vending_machine": true, "waste_basket": true,
+	"bicycle_parking": true, "waste_disposal": true, "letter_box": true,
+	"drinking_water": true, "fire_hydrant": true, "bollard": true,
+	"surveillance": true, "street_lamp": true, "clock": true, "manhole": true,
+}
+
 func classifyPoi(tags map[string]string) (poiType, poiSubType, name string, ok bool) {
 	for k, v := range tags {
 		if poiKeys[k] {
@@ -301,6 +309,10 @@ func classifyPoi(tags map[string]string) (poiType, poiSubType, name string, ok b
 		}
 	}
 	if poiType != "" {
+		// Skip generic subtypes that have no real name
+		if name == "" && genericPoiSubTypes[poiSubType] {
+			return "", "", "", false
+		}
 		return poiType, poiSubType, name, true
 	}
 	return "", "", "", false
