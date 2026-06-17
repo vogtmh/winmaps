@@ -1511,27 +1511,21 @@ namespace WinMaps
 
         private void BtnBrowseBack_Click(object sender, RoutedEventArgs e)
         {
-            if (_browseStack.Count > 0)
+            if (_browseStack.Count == 0)
             {
-                _browseStack.Pop(); // remove current level
-            }
-
-            if (_browseStack.Count > 0)
-            {
-                ShowBrowseLevel(_browseStack.Peek());
-            }
-            else if (BrowseView.Visibility == Visibility.Visible &&
-                     MyMapsView.Visibility == Visibility.Collapsed)
-            {
-                // At continent root — go back to My Maps
+                // Already at continent root — go back to My Maps
                 BrowseView.Visibility = Visibility.Collapsed;
                 MyMapsView.Visibility = Visibility.Visible;
                 RefreshMyMapsList();
+                return;
             }
+
+            _browseStack.Pop();
+
+            if (_browseStack.Count > 0)
+                ShowBrowseLevel(_browseStack.Peek());
             else
-            {
-                ShowBrowseLevel(null); // back to continents
-            }
+                ShowBrowseLevel(null); // back to continents root
         }
 
         private async void BtnRefreshCatalog_Click(object sender, RoutedEventArgs e)
