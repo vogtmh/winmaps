@@ -2,7 +2,6 @@ package main
 
 import (
 	"compress/gzip"
-	"context"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
@@ -18,8 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/paulmach/osm"
-	"github.com/paulmach/osm/osmpbf"
+	"github.com/thomersch/gosmparse"
 	_ "modernc.org/sqlite"
 )
 
@@ -242,47 +240,47 @@ var poiKeys = map[string]bool{
 	"amenity": true, "shop": true, "tourism": true, "healthcare": true, "office": true,
 }
 
-func classifyWay(tags osm.Tags) (wayType int, subType string, ok bool) {
-	for _, t := range tags {
-		switch t.Key {
+func classifyWay(tags map[string]string) (wayType int, subType string, ok bool) {
+	for k, v := range tags {
+		switch k {
 		case "highway":
-			if roadKeys[t.Value] {
-				return TypeRoad, t.Value, true
+			if roadKeys[v] {
+				return TypeRoad, v, true
 			}
 		case "waterway":
-			return TypeWater, t.Value, true
+			return TypeWater, v, true
 		case "natural":
-			switch t.Value {
+			switch v {
 			case "water":
-				return TypeWater, t.Value, true
+				return TypeWater, v, true
 			case "wood", "scrub":
-				return TypePark, t.Value, true
+				return TypePark, v, true
 			}
 		case "water":
-			return TypeWater, t.Value, true
+			return TypeWater, v, true
 		case "leisure":
-			switch t.Value {
+			switch v {
 			case "park", "garden", "nature_reserve":
-				return TypePark, t.Value, true
+				return TypePark, v, true
 			}
 		case "landuse":
-			switch t.Value {
+			switch v {
 			case "forest", "grass", "meadow", "farmland", "orchard", "vineyard", "recreation_ground":
-				return TypePark, t.Value, true
+				return TypePark, v, true
 			}
 		}
 	}
 	return 0, "", false
 }
 
-func classifyPoi(tags osm.Tags) (poiType, poiSubType, name string, ok bool) {
-	for _, t := range tags {
-		if poiKeys[t.Key] {
-			poiType = t.Key
-			poiSubType = t.Value
+func classifyPoi(tags map[string]string) (poiType, poiSubType, name string, ok bool) {
+	for k, v := range tags {
+		if poiKeys[k] {
+			poiType = k
+			poiSubType = v
 		}
-		if t.Key == "name" {
-			name = t.Value
+		if k == "name" {
+			name = v
 		}
 	}
 	if poiType != "" {
@@ -371,6 +369,122 @@ func createIndexes(db *sql.DB) {
 }
 
 // ---------------------------------------------------------------------------
+// gosmparse handlers for two-pass import (pure Go, no CGO)
+// ---------------------------------------------------------------------------
+
+type pass1Handler struct {
+	nodeIDs  []int64
+	scanWays int64
+}
+
+func (h *pass1Handler) ReadNode(n gosmparse.Node)         {}
+func (h *pass1Handler) ReadRelation(r gosmparse.Relation) {}
+func (h *pass1Handler) ReadWay(w gosmparse.Way) {
+	if _, _, ok := classifyWay(w.Tags); !ok {
+		return
+	}
+	for _, nid := range w.NodeIDs {
+		h.nodeIDs = append(h.nodeIDs, nid)
+	}
+	h.scanWays++
+}
+
+const (
+	wayInsertSQL = `INSERT OR IGNORE INTO ways(id, type, subtype, geometry, min_lat, max_lat, min_lon, max_lon) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`
+	poiInsertSQL = `INSERT OR IGNORE INTO pois(id, type, subtype, name, lat, lon) VALUES(?, ?, ?, ?, ?, ?)`
+)
+
+type pass2Handler struct {
+	nodeIDs    []int64
+	latBuf     []float64
+	lonBuf     []float64
+	db         *sql.DB
+	tx         *sql.Tx
+	wayStmt    *sql.Stmt
+	poiStmt    *sql.Stmt
+	nodeCount  int64
+	wayCount   int64
+	poiCount   int64
+	batchCount int64
+	lastReport time.Time
+}
+
+func (h *pass2Handler) ReadRelation(r gosmparse.Relation) {}
+
+func (h *pass2Handler) ReadNode(n gosmparse.Node) {
+	h.nodeCount++
+	if idx, found := slices.BinarySearch(h.nodeIDs, n.ID); found {
+		h.latBuf[idx] = n.Lat
+		h.lonBuf[idx] = n.Lon
+	}
+	if len(n.Tags) > 0 {
+		if pt, ps, pn, ok := classifyPoi(n.Tags); ok {
+			h.poiStmt.Exec(n.ID, pt, ps, nullStr(pn), n.Lat, n.Lon)
+			h.poiCount++
+			h.batchCount++
+			h.maybeFlush()
+		}
+	}
+	if time.Since(h.lastReport) > 2*time.Second {
+		fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk  ",
+			h.nodeCount/1000, h.wayCount/1000, h.poiCount/1000)
+		h.lastReport = time.Now()
+	}
+}
+
+func (h *pass2Handler) ReadWay(w gosmparse.Way) {
+	wt, ws, ok := classifyWay(w.Tags)
+	if !ok {
+		return
+	}
+	lats := make([]float64, 0, len(w.NodeIDs))
+	lons := make([]float64, 0, len(w.NodeIDs))
+	minLat, maxLat := math.MaxFloat64, -math.MaxFloat64
+	minLon, maxLon := math.MaxFloat64, -math.MaxFloat64
+	for _, nid := range w.NodeIDs {
+		if idx, found := slices.BinarySearch(h.nodeIDs, nid); found {
+			lat := h.latBuf[idx]
+			lon := h.lonBuf[idx]
+			lats = append(lats, lat)
+			lons = append(lons, lon)
+			if lat < minLat {
+				minLat = lat
+			}
+			if lat > maxLat {
+				maxLat = lat
+			}
+			if lon < minLon {
+				minLon = lon
+			}
+			if lon > maxLon {
+				maxLon = lon
+			}
+		}
+	}
+	if len(lats) < 2 {
+		return
+	}
+	geo := encodeGeometry(lats, lons)
+	h.wayStmt.Exec(w.ID, wt, ws, geo, minLat, maxLat, minLon, maxLon)
+	h.wayCount++
+	h.batchCount++
+	h.maybeFlush()
+}
+
+func (h *pass2Handler) maybeFlush() {
+	if h.batchCount < 500_000 {
+		return
+	}
+	h.wayStmt.Close()
+	h.poiStmt.Close()
+	h.tx.Commit()
+	h.tx, _ = h.db.Begin()
+	h.wayStmt, _ = h.tx.Prepare(wayInsertSQL)
+	h.poiStmt, _ = h.tx.Prepare(poiInsertSQL)
+	h.batchCount = 0
+}
+
+// ---------------------------------------------------------------------------
 // Two-pass PBF import
 // ---------------------------------------------------------------------------
 
@@ -394,31 +508,14 @@ func importPbf(pbfPath, dbPath string) error {
 	if err != nil {
 		return err
 	}
-
-	scanner1 := osmpbf.New(context.Background(), f1, runtime.GOMAXPROCS(0))
-	scanner1.SkipNodes = true
-	scanner1.SkipRelations = true
-
-	// Collect raw node IDs into a plain slice — no map, no GC overhead
-	nodeIDs := make([]int64, 0, 200_000_000)
-	var scanWays int64
-
-	for scanner1.Scan() {
-		if w, ok := scanner1.Object().(*osm.Way); ok {
-			if _, _, match := classifyWay(w.Tags); match {
-				for _, n := range w.Nodes {
-					nodeIDs = append(nodeIDs, int64(n.ID))
-				}
-				scanWays++
-			}
-		}
-	}
-	if err := scanner1.Err(); err != nil {
+	h1 := &pass1Handler{nodeIDs: make([]int64, 0, 200_000_000)}
+	if err := gosmparse.NewDecoder(f1).Parse(h1); err != nil {
 		f1.Close()
 		return err
 	}
 	f1.Close()
-	scanner1.Close()
+	nodeIDs := h1.nodeIDs
+	scanWays := h1.scanWays
 
 	fmt.Printf("  Sorting %d raw node refs...\n", len(nodeIDs))
 	slices.Sort(nodeIDs)
@@ -441,128 +538,45 @@ func importPbf(pbfPath, dbPath string) error {
 	}
 	defer f2.Close()
 
-	scanner2 := osmpbf.New(context.Background(), f2, runtime.GOMAXPROCS(0))
-	scanner2.SkipRelations = true
-
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-
-	wayStmt, err := tx.Prepare(`INSERT OR IGNORE INTO ways(id, type, subtype, geometry, min_lat, max_lat, min_lon, max_lon)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`)
+	wayStmt, err := tx.Prepare(wayInsertSQL)
 	if err != nil {
+		tx.Rollback()
 		return err
 	}
-
-	poiStmt, err := tx.Prepare(`INSERT OR IGNORE INTO pois(id, type, subtype, name, lat, lon)
-		VALUES(?, ?, ?, ?, ?, ?)`)
+	poiStmt, err := tx.Prepare(poiInsertSQL)
 	if err != nil {
-		return err
-	}
-
-	const batchSize = 500_000
-	var nodeCount, wayCount, poiCount, batchCount int64
-	lastReport := time.Now()
-
-	reopenStmts := func() {
-		wayStmt.Close()
-		poiStmt.Close()
-		tx.Commit()
-		tx, _ = db.Begin()
-		wayStmt, _ = tx.Prepare(`INSERT OR IGNORE INTO ways(id, type, subtype, geometry, min_lat, max_lat, min_lon, max_lon)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?)`)
-		poiStmt, _ = tx.Prepare(`INSERT OR IGNORE INTO pois(id, type, subtype, name, lat, lon)
-			VALUES(?, ?, ?, ?, ?, ?)`)
-		batchCount = 0
-	}
-
-	for scanner2.Scan() {
-		switch o := scanner2.Object().(type) {
-		case *osm.Node:
-			nodeCount++
-			nid := int64(o.ID)
-			// Binary search into sorted nodeIDs — O(log n), cache-friendly
-			if idx, found := slices.BinarySearch(nodeIDs, nid); found {
-				latBuf[idx] = o.Lat
-				lonBuf[idx] = o.Lon
-			}
-			// POI extraction from nodes
-			if len(o.Tags) > 0 {
-				if pt, ps, pn, ok := classifyPoi(o.Tags); ok {
-					poiStmt.Exec(int64(o.ID), pt, ps, nullStr(pn), o.Lat, o.Lon)
-					poiCount++
-					batchCount++
-				}
-			}
-
-		case *osm.Way:
-			wt, ws, ok := classifyWay(o.Tags)
-			if !ok {
-				continue
-			}
-
-			lats := make([]float64, 0, len(o.Nodes))
-			lons := make([]float64, 0, len(o.Nodes))
-			minLat, maxLat := math.MaxFloat64, -math.MaxFloat64
-			minLon, maxLon := math.MaxFloat64, -math.MaxFloat64
-
-			for _, n := range o.Nodes {
-				if idx, found := slices.BinarySearch(nodeIDs, int64(n.ID)); found {
-					lat := latBuf[idx]
-					lon := lonBuf[idx]
-					lats = append(lats, lat)
-					lons = append(lons, lon)
-					if lat < minLat {
-						minLat = lat
-					}
-					if lat > maxLat {
-						maxLat = lat
-					}
-					if lon < minLon {
-						minLon = lon
-					}
-					if lon > maxLon {
-						maxLon = lon
-					}
-				}
-			}
-
-			if len(lats) < 2 {
-				continue
-			}
-
-			geo := encodeGeometry(lats, lons)
-			wayStmt.Exec(int64(o.ID), wt, ws, geo, minLat, maxLat, minLon, maxLon)
-			wayCount++
-			batchCount++
-		}
-
-		if batchCount >= batchSize {
-			reopenStmts()
-		}
-
-		if time.Since(lastReport) > 2*time.Second {
-			fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk  ",
-				nodeCount/1000, wayCount/1000, poiCount/1000)
-			lastReport = time.Now()
-		}
-	}
-
-	if err := scanner2.Err(); err != nil {
-		wayStmt.Close()
-		poiStmt.Close()
 		tx.Rollback()
 		return err
 	}
 
-	wayStmt.Close()
-	poiStmt.Close()
-	tx.Commit()
+	h2 := &pass2Handler{
+		nodeIDs:    nodeIDs,
+		latBuf:     latBuf,
+		lonBuf:     lonBuf,
+		db:         db,
+		tx:         tx,
+		wayStmt:    wayStmt,
+		poiStmt:    poiStmt,
+		lastReport: time.Now(),
+	}
+
+	if err := gosmparse.NewDecoder(f2).Parse(h2); err != nil {
+		h2.wayStmt.Close()
+		h2.poiStmt.Close()
+		h2.tx.Rollback()
+		return err
+	}
+	h2.wayStmt.Close()
+	h2.poiStmt.Close()
+	h2.tx.Commit()
 
 	pass2Dur := time.Since(pass2Start)
 	fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk (%s)\n",
-		nodeCount/1000, wayCount/1000, poiCount/1000, pass2Dur.Round(time.Millisecond))
+		h2.nodeCount/1000, h2.wayCount/1000, h2.poiCount/1000, pass2Dur.Round(time.Millisecond))
 
 	// Free memory before indexing
 	nodeIDs = nil
@@ -588,9 +602,9 @@ func importPbf(pbfPath, dbPath string) error {
 	fmt.Println("=== Import Summary ===")
 	fmt.Printf("  PBF size:    %.1f MB\n", float64(pbfSize)/1048576)
 	fmt.Printf("  DB size:     %.1f MB\n", float64(dbStat.Size())/1048576)
-	fmt.Printf("  Ways:        %d\n", wayCount)
-	fmt.Printf("  POIs:        %d\n", poiCount)
-	fmt.Printf("  Nodes read:  %d\n", nodeCount)
+	fmt.Printf("  Ways:        %d\n", h2.wayCount)
+	fmt.Printf("  POIs:        %d\n", h2.poiCount)
+	fmt.Printf("  Nodes read:  %d\n", h2.nodeCount)
 	fmt.Printf("  Pass 1:      %s\n", pass1Dur.Round(time.Millisecond))
 	fmt.Printf("  Pass 2:      %s\n", pass2Dur.Round(time.Millisecond))
 	fmt.Printf("  Indexing:    %s\n", indexDur.Round(time.Millisecond))

@@ -3,12 +3,11 @@ module winmaps_prebuild
 go 1.22
 
 require (
-	github.com/paulmach/osm v0.8.0
+	github.com/thomersch/gosmparse v0.4.0
 	modernc.org/sqlite v1.29.6
 )
 
 require (
-	github.com/datadog/czlib v0.0.0-20160811164712-4bc9a24e37f2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
