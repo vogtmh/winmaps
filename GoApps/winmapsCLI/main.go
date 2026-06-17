@@ -269,7 +269,8 @@ func classifyWay(tags map[string]string) (wayType int, subType string, ok bool) 
 			}
 		case "landuse":
 			switch v {
-			case "forest", "grass", "meadow", "farmland", "orchard", "vineyard", "recreation_ground":
+			case "forest", "grass", "meadow", "farmland", "orchard", "vineyard", "recreation_ground",
+				"residential", "industrial", "commercial", "retail":
 				return TypePark, v, true
 			}
 		}

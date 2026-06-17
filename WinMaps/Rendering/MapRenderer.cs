@@ -60,7 +60,7 @@ namespace WinMaps.Rendering
                 StartCap = CanvasCapStyle.Round,
                 EndCap = CanvasCapStyle.Round,
                 DashStyle = CanvasDashStyle.Dash,
-                CustomDashStyle = new float[] { 3f, 3f }
+                CustomDashStyle = new float[] { 2f, 4f }
             };
         }
 
@@ -508,9 +508,11 @@ namespace WinMaps.Rendering
                 case "footway":
                 case "path":
                 case "cycleway":
+                    if (zoom < 14) return -1;
+                    baseWidth = 0.8f; break;
                 case "track":
                     if (zoom < 13) return -1;
-                    baseWidth = 0.8f; break;
+                    baseWidth = 0.6f; break;
                 case "pedestrian":
                     baseWidth = 1.5f; break;
                 default:

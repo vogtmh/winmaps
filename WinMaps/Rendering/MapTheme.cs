@@ -139,6 +139,10 @@ namespace WinMaps.Rendering
                 ["park"] = Color.FromArgb(255, 200, 250, 204),
                 ["garden"] = Color.FromArgb(255, 200, 250, 204),
                 ["nature_reserve"] = Color.FromArgb(255, 178, 223, 162),
+                ["residential"] = Color.FromArgb(255, 224, 223, 223),
+                ["industrial"] = Color.FromArgb(255, 235, 219, 232),
+                ["commercial"] = Color.FromArgb(255, 242, 216, 217),
+                ["retail"] = Color.FromArgb(255, 254, 216, 216),
             }
         };
 
@@ -214,6 +218,10 @@ namespace WinMaps.Rendering
                 ["park"] = Color.FromArgb(255, 28, 58, 35),
                 ["garden"] = Color.FromArgb(255, 28, 58, 35),
                 ["nature_reserve"] = Color.FromArgb(255, 22, 55, 28),
+                ["residential"] = Color.FromArgb(255, 35, 35, 40),
+                ["industrial"] = Color.FromArgb(255, 38, 30, 38),
+                ["commercial"] = Color.FromArgb(255, 40, 30, 32),
+                ["retail"] = Color.FromArgb(255, 42, 28, 30),
             }
         };
 
@@ -289,6 +297,10 @@ namespace WinMaps.Rendering
                 ["park"] = Color.FromArgb(255, 185, 220, 165),
                 ["garden"] = Color.FromArgb(255, 185, 220, 165),
                 ["nature_reserve"] = Color.FromArgb(255, 155, 210, 140),
+                ["residential"] = Color.FromArgb(255, 228, 228, 228),
+                ["industrial"] = Color.FromArgb(255, 235, 222, 232),
+                ["commercial"] = Color.FromArgb(255, 240, 218, 220),
+                ["retail"] = Color.FromArgb(255, 252, 218, 218),
             }
         };
 
@@ -364,6 +376,10 @@ namespace WinMaps.Rendering
                 ["park"] = Color.FromArgb(255, 5, 40, 20),
                 ["garden"] = Color.FromArgb(255, 5, 40, 20),
                 ["nature_reserve"] = Color.FromArgb(255, 3, 38, 15),
+                ["residential"] = Color.FromArgb(255, 18, 18, 24),
+                ["industrial"] = Color.FromArgb(255, 22, 14, 22),
+                ["commercial"] = Color.FromArgb(255, 24, 14, 18),
+                ["retail"] = Color.FromArgb(255, 26, 12, 16),
             }
         };
 
@@ -441,6 +457,10 @@ namespace WinMaps.Rendering
                 ["park"] = Color.FromArgb(255, 200, 250, 204),
                 ["garden"] = Color.FromArgb(255, 200, 250, 204),
                 ["nature_reserve"] = Color.FromArgb(255, 160, 215, 145),
+                ["residential"] = Color.FromArgb(255, 224, 223, 223),
+                ["industrial"] = Color.FromArgb(255, 235, 219, 232),
+                ["commercial"] = Color.FromArgb(255, 242, 216, 217),
+                ["retail"] = Color.FromArgb(255, 254, 216, 216),
             }
         };
 

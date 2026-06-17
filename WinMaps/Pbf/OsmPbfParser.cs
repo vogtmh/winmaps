@@ -562,7 +562,8 @@ namespace WinMaps.Pbf
                 }
                 else if (key == "landuse" && (val == "forest" || val == "grass" || val == "meadow" ||
                          val == "farmland" || val == "orchard" || val == "vineyard" ||
-                         val == "recreation_ground"))
+                         val == "recreation_ground" || val == "residential" ||
+                         val == "industrial" || val == "commercial" || val == "retail"))
                 {
                     wayType = OsmElementType.Park;
                     subType = val;

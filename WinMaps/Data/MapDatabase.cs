@@ -407,24 +407,24 @@ namespace WinMaps.Data
             }
             else if (zoom < 13)
             {
-                // Add tertiary/residential, include footway/path at Z13; smaller areas + buildings
+                // Add tertiary/residential, track only (no footway/path/cycleway); smaller areas + buildings
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
-                            (type = 0 AND subtype NOT IN ('service'))
+                            (type = 0 AND subtype NOT IN ('footway','path','cycleway','service'))
                             OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00001)
                             OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00001)
                           )";
             }
             else if (zoom < 14)
             {
-                // All roads including footway/path; small areas + buildings
+                // All roads except footway/path/cycleway; small areas + buildings
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
-                            (type = 0)
+                            (type = 0 AND subtype NOT IN ('footway','path','cycleway'))
                             OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.000001)
                             OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.000001)
                           )";
