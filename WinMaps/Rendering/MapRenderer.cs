@@ -63,7 +63,7 @@ namespace WinMaps.Rendering
             _frameOffsetX = (float)(-_viewport.LonToMercatorX(_viewport.CenterLon) + _viewport.ScreenWidth / 2.0);
             _frameOffsetY = (float)(-_viewport.LatToMercatorY(_viewport.CenterLat) + _viewport.ScreenHeight / 2.0);
 
-            // Layer order: parks → water → buildings → road outlines → roads → POIs
+            // Layer order: parks → water → buildings → road outlines → roads → building labels → POIs
 
             // Parks: batch by park color
             DrawBatchedAreas(ds, rc, (int)Pbf.OsmElementType.Park,
@@ -79,9 +79,9 @@ namespace WinMaps.Rendering
                 w => _theme.WaterColor,
                 w => GetWaterwayWidth(w.SubType, _viewport.Zoom));
 
-            // Buildings (only at zoom >= 15)
+            // Buildings geometry only (fills + outlines, no labels)
             if (_viewport.Zoom >= 15)
-                DrawBuildings(ds, rc);
+                DrawBuildings(ds, labelsOnly: false);
 
             // Road outlines (only at zoom >= 13)
             if (_viewport.Zoom >= 13)
@@ -96,7 +96,11 @@ namespace WinMaps.Rendering
                 w => _theme.GetRoadColor(w.SubType),
                 w => GetRoadWidth(w.SubType, _viewport.Zoom));
 
-            // POIs (drawn on top of everything)
+            // Building labels on top of roads (zoom >= 17)
+            if (_viewport.Zoom >= 17)
+                DrawBuildings(ds, labelsOnly: true);
+
+            // POIs on top of everything
             if (_cachedPois != null && _viewport.Zoom >= 15)
             {
                 DrawPois(ds);
@@ -105,12 +109,12 @@ namespace WinMaps.Rendering
 
         private const int MaxWaysPerBatch = 500;
 
-        private void DrawBuildings(CanvasDrawingSession ds, ICanvasResourceCreator rc = null)
+        private void DrawBuildings(CanvasDrawingSession ds, bool labelsOnly)
         {
             bool showLabels = _viewport.Zoom >= 17;
             float fontSize = 9f;
 
-            using (var textFormat = showLabels ? new CanvasTextFormat
+            using (var textFormat = (showLabels && labelsOnly) ? new CanvasTextFormat
             {
                 FontSize = fontSize,
                 HorizontalAlignment = CanvasHorizontalAlignment.Center,
@@ -124,24 +128,26 @@ namespace WinMaps.Rendering
 
                     float ox = _frameOffsetX, oy = _frameOffsetY;
 
-                    // Build path
-                    using (var pb = new CanvasPathBuilder(ds))
+                    if (!labelsOnly)
                     {
-                        pb.BeginFigure(way.MercX[0] + ox, way.MercY[0] + oy);
-                        for (int i = 1; i < way.MercX.Length; i++)
-                            pb.AddLine(way.MercX[i] + ox, way.MercY[i] + oy);
-                        pb.EndFigure(CanvasFigureLoop.Closed);
-
-                        using (var geo = CanvasGeometry.CreatePath(pb))
+                        // Build path
+                        using (var pb = new CanvasPathBuilder(ds))
                         {
-                            ds.FillGeometry(geo, _theme.BuildingFill);
-                            ds.DrawGeometry(geo, _theme.BuildingStroke, 0.8f);
+                            pb.BeginFigure(way.MercX[0] + ox, way.MercY[0] + oy);
+                            for (int i = 1; i < way.MercX.Length; i++)
+                                pb.AddLine(way.MercX[i] + ox, way.MercY[i] + oy);
+                            pb.EndFigure(CanvasFigureLoop.Closed);
+
+                            using (var geo = CanvasGeometry.CreatePath(pb))
+                            {
+                                ds.FillGeometry(geo, _theme.BuildingFill);
+                                ds.DrawGeometry(geo, _theme.BuildingStroke, 0.8f);
+                            }
                         }
                     }
-
-                    // Label named buildings at zoom >= 17
-                    if (showLabels && textFormat != null)
+                    else if (showLabels && textFormat != null)
                     {
+                        // Label named buildings — rendered above roads
                         var (name, _) = MapTheme.DecodeBuildingSubType(way.SubType);
                         if (string.IsNullOrEmpty(name)) continue;
 
