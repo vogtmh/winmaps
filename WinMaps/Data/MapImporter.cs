@@ -40,6 +40,10 @@ namespace WinMaps.Data
         {
             db.CreateSchema();
 
+            // Drop spatial indexes before inserting so SQLite doesn't have to maintain
+            // them row-by-row during bulk import. They are rebuilt at the end.
+            db.DropSpatialIndex();
+
             long fileSize = new FileInfo(pbfPath).Length;
 
             // ---- Pass 1: Scan ways to collect referenced node IDs ----
@@ -83,12 +87,14 @@ namespace WinMaps.Data
             long wayCount = 0;
             int batchCount = 0;
 
-            db.PrepareInsertStatement();
-            Microsoft.Data.Sqlite.SqliteTransaction tx = db.BeginTransaction();
-
             try
             {
-                using (var stream = File.OpenRead(pbfPath))
+                db.PrepareInsertStatement();
+                Microsoft.Data.Sqlite.SqliteTransaction tx = db.BeginTransaction();
+
+                try
+                {
+                    using (var stream = File.OpenRead(pbfPath))
                 {
                     var parser = new OsmPbfParser();
 
@@ -171,39 +177,38 @@ namespace WinMaps.Data
                     parser.Parse(stream, fileSize, ct);
                 }
 
-                // Commit remaining batch
-                tx.Commit();
-                tx.Dispose();
-                tx = null;
+                    // Commit remaining batch
+                    tx.Commit();
+                    tx.Dispose();
+                    tx = null;
+                }
+                finally
+                {
+                    tx?.Dispose();
+                    db.DisposeInsertStatement();
+                }
             }
             finally
             {
-                tx?.Dispose();
-                db.DisposeInsertStatement();
+                // Always rebuild spatial indexes — even on cancellation or failure —
+                // so the DB is never left in an unindexed state that breaks rendering.
+                nodeIds = null;
+                latBuf = null;
+                lonBuf = null;
+                GC.Collect();
+
+                ReportProgress(ImportPhase.BuildingIndex, 50, nodeCount, wayCount);
+                db.CreateSpatialIndex();
+                db.Checkpoint();
             }
 
-            // Free memory before indexing
-            nodeIds = null;
-            latBuf = null;
-            lonBuf = null;
-            GC.Collect();
-
-            // Build spatial index
-            ReportProgress(ImportPhase.BuildingIndex, 50, nodeCount, wayCount);
-            db.CreateSpatialIndex();
-
+            // Only record success metadata after a clean import
             db.SetMetadata("import_date", DateTime.UtcNow.ToString("O"));
             db.SetMetadata("node_count", nodeCount.ToString());
             db.SetMetadata("way_count", wayCount.ToString());
             db.SetMetadata("source", pbfPath);
 
-            // Record this region as successfully imported into the country DB
             db.InsertRegion(regionId, regionName);
-
-            // Checkpoint the WAL back into the main DB file and truncate it.
-            // CreateSpatialIndex() can leave a very large WAL that makes the next
-            // startup slow (or OOM on constrained devices) if not flushed here.
-            db.Checkpoint();
 
             ReportProgress(ImportPhase.Done, 100, nodeCount, wayCount);
         }

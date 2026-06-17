@@ -172,6 +172,17 @@ namespace WinMaps.Data
             Execute("CREATE INDEX IF NOT EXISTS idx_pois_coords ON pois(lat, lon)");
         }
 
+        /// <summary>
+        /// Drops the spatial indexes so that bulk inserts don't have to maintain them
+        /// row-by-row. Call before importing; call CreateSpatialIndex() when done.
+        /// </summary>
+        public void DropSpatialIndex()
+        {
+            Execute("DROP INDEX IF EXISTS idx_ways_bounds");
+            Execute("DROP INDEX IF EXISTS idx_ways_type_bounds");
+            Execute("DROP INDEX IF EXISTS idx_pois_coords");
+        }
+
         public SqliteTransaction BeginTransaction()
         {
             return _connection.BeginTransaction();
