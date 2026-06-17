@@ -382,18 +382,19 @@ namespace WinMaps.Data
             }
             else if (zoom < 10)
             {
-                // Add primary roads + large areas
+                // Add primary roads + large areas + village-scale buildings
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
                             (type = 0 AND subtype IN ('motorway','trunk','primary','motorway_link','trunk_link','primary_link'))
                             OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.0002)
+                            OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00005)
                           )";
             }
             else if (zoom < 12)
             {
-                // Add secondary roads, skip minor paths/tracks/service; medium+ areas only
+                // Add secondary roads, skip minor paths/tracks/service; medium+ areas + buildings
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
@@ -401,28 +402,31 @@ namespace WinMaps.Data
                             (type = 0 AND subtype IN ('motorway','trunk','primary','secondary',
                                 'motorway_link','trunk_link','primary_link','secondary_link'))
                             OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00005)
+                            OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00005)
                           )";
             }
             else if (zoom < 13)
             {
-                // Add tertiary/residential, still skip footway/path/track/cycleway; smaller areas
+                // Add tertiary/residential, include footway/path at Z13; smaller areas + buildings
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
-                            (type = 0 AND subtype NOT IN ('footway','cycleway','path','track','service'))
+                            (type = 0 AND subtype NOT IN ('service'))
                             OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00001)
+                            OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00001)
                           )";
             }
             else if (zoom < 14)
             {
-                // All roads except footway/path/track/cycleway; small areas
+                // All roads including footway/path; small areas + buildings
                 sql = @"SELECT type, subtype, geometry FROM ways
                         WHERE max_lat >= @minLat AND min_lat <= @maxLat
                           AND max_lon >= @minLon AND min_lon <= @maxLon
                           AND (
-                            (type = 0 AND subtype NOT IN ('footway','path','track','cycleway'))
+                            (type = 0)
                             OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.000001)
+                            OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.000001)
                           )";
             }
             else

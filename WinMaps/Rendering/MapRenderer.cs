@@ -94,8 +94,8 @@ namespace WinMaps.Rendering
                 w => _theme.WaterColor,
                 w => GetWaterwayWidth(w.SubType, _viewport.Zoom));
 
-            // Buildings geometry only (fills + outlines, no labels)
-            if (_viewport.Zoom >= 15)
+            // Buildings geometry (fills; outlines only at zoom >= 15)
+            if (_viewport.Zoom >= 10)
                 DrawBuildings(ds, labelsOnly: false);
 
             // Road outlines (only at zoom >= 13, solid roads only — no outlines on dashed)
@@ -164,7 +164,8 @@ namespace WinMaps.Rendering
                             using (var geo = CanvasGeometry.CreatePath(pb))
                             {
                                 ds.FillGeometry(geo, _theme.BuildingFill);
-                                ds.DrawGeometry(geo, _theme.BuildingStroke, 0.8f);
+                                if (_viewport.Zoom >= 15)
+                                    ds.DrawGeometry(geo, _theme.BuildingStroke, 0.8f);
                             }
                         }
                     }
@@ -508,7 +509,7 @@ namespace WinMaps.Rendering
                 case "path":
                 case "cycleway":
                 case "track":
-                    if (zoom < 15) return -1;
+                    if (zoom < 13) return -1;
                     baseWidth = 0.8f; break;
                 case "pedestrian":
                     baseWidth = 1.5f; break;
@@ -542,8 +543,12 @@ namespace WinMaps.Rendering
             {
                 case "river": baseWidth = 3.0f; break;
                 case "canal": baseWidth = 2.5f; break;
-                case "stream": case "brook": baseWidth = 1.5f; break;
-                case "ditch": case "drain": baseWidth = 0.8f; break;
+                case "stream": case "brook":
+                    if (zoom < 14) return -1;
+                    baseWidth = 1.5f; break;
+                case "ditch": case "drain":
+                    if (zoom < 14) return -1;
+                    baseWidth = 0.8f; break;
                 default: baseWidth = 1.0f; break;
             }
 
