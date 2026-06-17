@@ -112,6 +112,22 @@ namespace WinMaps
 
         private void OnBackRequested(object sender, Windows.UI.Core.BackRequestedEventArgs e)
         {
+            // Menu is open — dismiss it
+            if (MenuPanel.Visibility == Visibility.Visible)
+            {
+                CloseMenu();
+                e.Handled = true;
+                return;
+            }
+
+            // Preferences panel
+            if (PreferencesPanel.Visibility == Visibility.Visible)
+            {
+                PreferencesPanel.Visibility = Visibility.Collapsed;
+                e.Handled = true;
+                return;
+            }
+
             if (ThemePanel.Visibility == Visibility.Visible)
             {
                 ThemePanel.Visibility = Visibility.Collapsed;
@@ -534,7 +550,58 @@ namespace WinMaps
 
         private void BtnMapManager_Click(object sender, RoutedEventArgs e)
         {
-            ShowMapManager(startInBrowse: false);
+            ShowMenu();
+        }
+
+        private void ShowMenu()
+        {
+            MenuScrim.Visibility = Visibility.Visible;
+            MenuPanel.Visibility = Visibility.Visible;
+            MenuTranslate.Y = 400;
+            MenuSlideIn.Begin();
+        }
+
+        private void CloseMenu(Action afterClose = null)
+        {
+            MenuSlideOut.Completed -= OnMenuSlideOutCompleted;
+            _menuSlideOutAction = afterClose;
+            MenuSlideOut.Completed += OnMenuSlideOutCompleted;
+            MenuSlideOut.Begin();
+        }
+
+        private Action _menuSlideOutAction;
+
+        private void OnMenuSlideOutCompleted(object sender, object e)
+        {
+            MenuSlideOut.Completed -= OnMenuSlideOutCompleted;
+            MenuPanel.Visibility = Visibility.Collapsed;
+            MenuScrim.Visibility = Visibility.Collapsed;
+            _menuSlideOutAction?.Invoke();
+            _menuSlideOutAction = null;
+        }
+
+        private void MenuScrim_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            CloseMenu();
+        }
+
+        private void BtnMenuManageMaps_Click(object sender, RoutedEventArgs e)
+        {
+            CloseMenu(() => ShowMapManager(startInBrowse: false));
+        }
+
+        private void BtnMenuThemes_Click(object sender, RoutedEventArgs e)
+        {
+            CloseMenu(() =>
+            {
+                ThemePanel.Visibility = Visibility.Visible;
+                RefreshThemeList();
+            });
+        }
+
+        private void BtnMenuPreferences_Click(object sender, RoutedEventArgs e)
+        {
+            CloseMenu(() => ShowPreferences());
         }
 
         private void ShowMapManager(bool startInBrowse)
@@ -1956,6 +2023,93 @@ namespace WinMaps
                         break;
                 }
             });
+        }
+
+        // ---- Preferences ----
+
+        private void ShowPreferences()
+        {
+            PreferencesPanel.Visibility = Visibility.Visible;
+
+            // App version from package identity
+            var ver = Windows.ApplicationModel.Package.Current.Id.Version;
+            TxtAppVersion.Text = $"WinMaps {ver.Major}.{ver.Minor}.{ver.Build}.{ver.Revision}";
+
+            RefreshTempSizes();
+        }
+
+        private void BtnClosePreferences_Click(object sender, RoutedEventArgs e)
+        {
+            PreferencesPanel.Visibility = Visibility.Collapsed;
+        }
+
+        private void RefreshTempSizes()
+        {
+            string mapsFolder = GetMapsFolder();
+
+            // PBF files
+            long pbfBytes = GetFolderSize(mapsFolder, "*.osm.pbf");
+            TxtPbfSize.Text = pbfBytes > 0
+                ? $"{pbfBytes / 1048576.0:F1} MB"
+                : "None";
+
+            // Partial downloads
+            long partialBytes = GetFolderSize(mapsFolder, "*.partial");
+            TxtPartialSize.Text = partialBytes > 0
+                ? $"{partialBytes / 1048576.0:F1} MB"
+                : "None";
+
+            // Geofabrik cache JSON files
+            long cacheBytes = GetFolderSize(mapsFolder, "*.json");
+            TxtCacheSize.Text = cacheBytes > 0
+                ? $"{cacheBytes / 1048576.0:F1} MB"
+                : "None";
+        }
+
+        private static long GetFolderSize(string folder, string pattern)
+        {
+            try
+            {
+                long total = 0;
+                foreach (var f in Directory.GetFiles(folder, pattern))
+                    total += new FileInfo(f).Length;
+                return total;
+            }
+            catch { return 0; }
+        }
+
+        private void BtnClearPbf_Click(object sender, RoutedEventArgs e)
+        {
+            DeleteFilesInMapsFolder("*.osm.pbf");
+            RefreshTempSizes();
+        }
+
+        private void BtnClearPartial_Click(object sender, RoutedEventArgs e)
+        {
+            DeleteFilesInMapsFolder("*.partial");
+            RefreshTempSizes();
+        }
+
+        private void BtnClearCache_Click(object sender, RoutedEventArgs e)
+        {
+            DeleteFilesInMapsFolder("*.json");
+            // Invalidate in-memory indexes so they re-download when needed
+            _geofabrikIndex = new GeofabrikIndex();
+            _geoIndex = new GeofabrikGeoIndex();
+            RefreshTempSizes();
+        }
+
+        private void DeleteFilesInMapsFolder(string pattern)
+        {
+            try
+            {
+                string mapsFolder = GetMapsFolder();
+                foreach (var f in Directory.GetFiles(mapsFolder, pattern))
+                {
+                    try { File.Delete(f); } catch { }
+                }
+            }
+            catch { }
         }
 
         // ---- Theme Selector ----

@@ -47,15 +47,6 @@
             <FontIcon Glyph="&#xE700;" FontFamily="Segoe MDL2 Assets" FontSize="18" />
         </Button>
 
-        <!-- Theme selector button (upper-left, below status bar) -->
-        <Button x:Name="BtnThemeSelector" Width="44" Height="44"
-                HorizontalAlignment="Left" VerticalAlignment="Top"
-                Margin="12,40,0,0"
-                Click="BtnThemeSelector_Click"
-                Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
-            <FontIcon Glyph="&#xE81E;" FontFamily="Segoe MDL2 Assets" FontSize="18" />
-        </Button>
-
         <!-- Status bar (top) -->
         <Grid HorizontalAlignment="Stretch" VerticalAlignment="Top"
               Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
@@ -340,5 +331,195 @@
                 </ListView.ItemContainerStyle>
             </ListView>
         </Grid>
+
+        <!-- ====== Slide-up Menu (CoMaps-style bottom sheet) ====== -->
+        <!-- Scrim: tap-to-dismiss translucent background -->
+        <Rectangle x:Name="MenuScrim"
+                   Fill="Black" Opacity="0" Visibility="Collapsed"
+                   PointerPressed="MenuScrim_PointerPressed" />
+
+        <!-- Bottom sheet -->
+        <Grid x:Name="MenuPanel"
+              VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
+              Visibility="Collapsed">
+            <Grid.RenderTransform>
+                <TranslateTransform x:Name="MenuTranslate" Y="400" />
+            </Grid.RenderTransform>
+            <Grid.Resources>
+                <Storyboard x:Name="MenuSlideIn">
+                    <DoubleAnimation Storyboard.TargetName="MenuTranslate"
+                                     Storyboard.TargetProperty="Y"
+                                     To="0" Duration="0:0:0.25">
+                        <DoubleAnimation.EasingFunction>
+                            <CubicEase EasingMode="EaseOut" />
+                        </DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                    <DoubleAnimation Storyboard.TargetName="MenuScrim"
+                                     Storyboard.TargetProperty="Opacity"
+                                     To="0.4" Duration="0:0:0.25" />
+                </Storyboard>
+                <Storyboard x:Name="MenuSlideOut">
+                    <DoubleAnimation Storyboard.TargetName="MenuTranslate"
+                                     Storyboard.TargetProperty="Y"
+                                     To="400" Duration="0:0:0.2">
+                        <DoubleAnimation.EasingFunction>
+                            <CubicEase EasingMode="EaseIn" />
+                        </DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                    <DoubleAnimation Storyboard.TargetName="MenuScrim"
+                                     Storyboard.TargetProperty="Opacity"
+                                     To="0" Duration="0:0:0.2" />
+                </Storyboard>
+            </Grid.Resources>
+
+            <Border Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                    CornerRadius="12,12,0,0"
+                    BorderBrush="{ThemeResource SystemControlForegroundBaseLowBrush}"
+                    BorderThickness="0,1,0,0">
+                <StackPanel>
+                    <!-- Drag handle -->
+                    <Rectangle Width="36" Height="4" RadiusX="2" RadiusY="2"
+                               HorizontalAlignment="Center" Margin="0,10,0,6"
+                               Fill="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+
+                    <!-- Manage maps -->
+                    <Button x:Name="BtnMenuManageMaps"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Background="Transparent" Padding="20,16"
+                            Click="BtnMenuManageMaps_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <FontIcon Glyph="&#xE81E;" FontFamily="Segoe MDL2 Assets"
+                                      FontSize="20" VerticalAlignment="Center" />
+                            <TextBlock Text="Manage maps" FontSize="16"
+                                       VerticalAlignment="Center" Margin="16,0,0,0" />
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Themes -->
+                    <Button x:Name="BtnMenuThemes"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Background="Transparent" Padding="20,16"
+                            Click="BtnMenuThemes_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <FontIcon Glyph="&#xE771;" FontFamily="Segoe MDL2 Assets"
+                                      FontSize="20" VerticalAlignment="Center" />
+                            <TextBlock Text="Themes" FontSize="16"
+                                       VerticalAlignment="Center" Margin="16,0,0,0" />
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Preferences -->
+                    <Button x:Name="BtnMenuPreferences"
+                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Background="Transparent" Padding="20,16"
+                            Click="BtnMenuPreferences_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <FontIcon Glyph="&#xE713;" FontFamily="Segoe MDL2 Assets"
+                                      FontSize="20" VerticalAlignment="Center" />
+                            <TextBlock Text="Preferences" FontSize="16"
+                                       VerticalAlignment="Center" Margin="16,0,0,0" />
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Safe-area spacer -->
+                    <Rectangle Height="16" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- ====== Preferences panel ====== -->
+        <Grid x:Name="PreferencesPanel" Visibility="Collapsed"
+              Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <Grid Grid.Row="0" Padding="8,12,16,12"
+                  Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Background="Transparent" Margin="0,0,8,0"
+                        Click="BtnClosePreferences_Click">
+                    <FontIcon Glyph="&#xE72B;" FontFamily="Segoe MDL2 Assets" FontSize="16" />
+                </Button>
+                <TextBlock Grid.Column="1" Text="Preferences" FontSize="20" FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+            </Grid>
+
+            <!-- Content -->
+            <ScrollViewer Grid.Row="1">
+                <StackPanel Padding="20,16">
+
+                    <!-- Temp files -->
+                    <TextBlock Text="TEMPORARY FILES" FontSize="11" FontWeight="SemiBold"
+                               Opacity="0.5" Margin="0,0,0,12" CharacterSpacing="100" />
+
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="Downloaded PBF files" FontSize="15" />
+                            <TextBlock x:Name="TxtPbfSize" Text="Calculating…"
+                                       FontSize="12" Opacity="0.6" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Clear"
+                                VerticalAlignment="Center"
+                                Click="BtnClearPbf_Click" />
+                    </Grid>
+
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="Partial downloads" FontSize="15" />
+                            <TextBlock x:Name="TxtPartialSize" Text="Calculating…"
+                                       FontSize="12" Opacity="0.6" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Clear"
+                                VerticalAlignment="Center"
+                                Click="BtnClearPartial_Click" />
+                    </Grid>
+
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="Geofabrik catalog cache" FontSize="15" />
+                            <TextBlock x:Name="TxtCacheSize" Text="Calculating…"
+                                       FontSize="12" Opacity="0.6" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Clear"
+                                VerticalAlignment="Center"
+                                Click="BtnClearCache_Click" />
+                    </Grid>
+
+                    <!-- Divider -->
+                    <Rectangle Height="1" Margin="0,8,0,16"
+                               Fill="{ThemeResource SystemControlForegroundBaseLowBrush}" />
+
+                    <!-- About -->
+                    <TextBlock Text="ABOUT" FontSize="11" FontWeight="SemiBold"
+                               Opacity="0.5" Margin="0,0,0,12" CharacterSpacing="100" />
+
+                    <TextBlock x:Name="TxtAppVersion" Text="WinMaps"
+                               FontSize="15" Opacity="0.8" />
+                    <TextBlock Text="Map data © OpenStreetMap contributors"
+                               FontSize="12" Opacity="0.5" Margin="0,4,0,0"
+                               TextWrapping="Wrap" />
+
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
     </Grid>
 </Page>
