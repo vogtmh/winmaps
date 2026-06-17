@@ -7,6 +7,16 @@ using Windows.Storage;
 
 namespace WinMaps.Download
 {
+    internal class HttpStatusException : Exception
+    {
+        public int StatusCode { get; }
+        public HttpStatusException(int statusCode)
+            : base($"HTTP {statusCode}")
+        {
+            StatusCode = statusCode;
+        }
+    }
+
     internal class DownloadProgress
     {
         public long BytesReceived;
@@ -79,7 +89,8 @@ namespace WinMaps.Download
 
                 var response = await client.SendAsync(request,
                     HttpCompletionOption.ResponseHeadersRead, ct);
-                response.EnsureSuccessStatusCode();
+                if (!response.IsSuccessStatusCode)
+                    throw new HttpStatusException((int)response.StatusCode);
 
                 long totalBytes = 0;
 

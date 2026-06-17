@@ -1900,25 +1900,21 @@ namespace WinMaps
             if (ex is OperationCanceledException)
                 return "Download cancelled.";
 
-            if (ex is HttpRequestException httpEx)
+            if (ex is Download.HttpStatusException httpEx)
             {
-                if (httpEx.StatusCode.HasValue)
+                switch (httpEx.StatusCode)
                 {
-                    int code = (int)httpEx.StatusCode.Value;
-                    switch (code)
-                    {
-                        case 403: return "Download blocked (403 Forbidden). The server refused the request.";
-                        case 404: return "File not found on server (404). The map may have moved or been renamed.";
-                        case 429: return "Too many requests (429). Please wait a moment and retry.";
-                        case 503: return "Server unavailable (503). Please try again later.";
-                        default:  return $"Download failed (HTTP {code}). Please check your connection and retry.";
-                    }
+                    case 403: return "Download blocked (403 Forbidden). The server refused the request.";
+                    case 404: return "File not found on server (404). The map may have moved or been renamed.";
+                    case 429: return "Too many requests (429). Please wait a moment and retry.";
+                    case 503: return "Server unavailable (503). Please try again later.";
+                    default:  return $"Download failed (HTTP {httpEx.StatusCode}). Please check your connection and retry.";
                 }
-                // No status code — likely a connectivity issue
-                return "Download failed. Please check your internet connection and retry.";
             }
 
-            // IO / storage errors
+            if (ex is System.Net.Http.HttpRequestException)
+                return "Download failed. Please check your internet connection and retry.";
+
             if (ex is IOException)
                 return $"Storage error: {ex.Message}";
 
