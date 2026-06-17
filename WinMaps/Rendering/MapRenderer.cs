@@ -44,6 +44,11 @@ namespace WinMaps.Rendering
         // Per-frame offset to convert cached Mercator coords → screen coords
         private float _frameOffsetX, _frameOffsetY;
 
+        // Shared per-frame label deconfliction grid (building labels + POIs)
+        private const int LabelCellSize = 180;
+        private bool[] _labelGrid;
+        private int _labelGridCols, _labelGridRows;
+
         public MapRenderer(MapDatabase db, MapViewport viewport, MapTheme theme = null)
         {
             _db = db;
@@ -79,6 +84,11 @@ namespace WinMaps.Rendering
             // Compute viewport offset once per frame — converts cached Mercator coords to screen
             _frameOffsetX = (float)(-_viewport.LonToMercatorX(_viewport.CenterLon) + _viewport.ScreenWidth / 2.0);
             _frameOffsetY = (float)(-_viewport.LatToMercatorY(_viewport.CenterLat) + _viewport.ScreenHeight / 2.0);
+
+            // Initialize shared label deconfliction grid for building labels + POIs
+            _labelGridCols = (int)(_viewport.ScreenWidth / LabelCellSize) + 1;
+            _labelGridRows = (int)(_viewport.ScreenHeight / LabelCellSize) + 1;
+            _labelGrid = new bool[_labelGridCols * _labelGridRows];
 
             // Layer order: parks → water → buildings → road outlines → roads → building labels → POIs
 
@@ -191,6 +201,16 @@ namespace WinMaps.Rendering
 
                         // Skip if off screen
                         if (cx < 0 || cx > _viewport.ScreenWidth || cy < 0 || cy > _viewport.ScreenHeight) continue;
+
+                        // Shared label deconfliction with POIs
+                        int lCol = (int)(cx / LabelCellSize);
+                        int lRow = (int)(cy / LabelCellSize);
+                        if (lCol >= 0 && lCol < _labelGridCols && lRow >= 0 && lRow < _labelGridRows)
+                        {
+                            int lIdx = lRow * _labelGridCols + lCol;
+                            if (_labelGrid[lIdx]) continue;
+                            _labelGrid[lIdx] = true;
+                        }
 
                         ds.DrawText(name, cx, cy, _theme.BuildingLabelColor, textFormat);
                     }
@@ -728,11 +748,8 @@ namespace WinMaps.Rendering
             float fontSize = _viewport.Zoom >= 17 ? 12f : 10f;
             float dotRadius = _viewport.Zoom >= 17 ? 4f : 3f;
 
-            // Grid-based label deconfliction: divide screen into cells
-            int cellSize = 120; // pixels per cell
-            int cols = (int)(_viewport.ScreenWidth / cellSize) + 1;
-            int rows = (int)(_viewport.ScreenHeight / cellSize) + 1;
-            var occupied = new bool[cols * rows];
+            // Use the shared label deconfliction grid (already used by building labels)
+            // This prevents POIs and building labels from overlapping each other
 
             using (var textFormat = new CanvasTextFormat
             {
@@ -771,14 +788,14 @@ namespace WinMaps.Rendering
 
                     if (!string.IsNullOrEmpty(label))
                     {
-                        int col = (int)(x / cellSize);
-                        int row = (int)(y / cellSize);
-                        if (col >= 0 && col < cols && row >= 0 && row < rows)
+                        int col = (int)(x / LabelCellSize);
+                        int row = (int)(y / LabelCellSize);
+                        if (col >= 0 && col < _labelGridCols && row >= 0 && row < _labelGridRows)
                         {
-                            int cellIdx = row * cols + col;
-                            if (!occupied[cellIdx])
+                            int cellIdx = row * _labelGridCols + col;
+                            if (!_labelGrid[cellIdx])
                             {
-                                occupied[cellIdx] = true;
+                                _labelGrid[cellIdx] = true;
                                 float textX = x;
                                 float textY = y - dotRadius - 2;
 
