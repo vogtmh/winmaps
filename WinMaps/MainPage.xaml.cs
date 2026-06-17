@@ -253,6 +253,9 @@ namespace WinMaps
 
                             OverlayPanel.Visibility = Visibility.Collapsed;
                             StartGps();
+                            // Defer RedrawMap so the canvas has been laid out with its final size.
+                            // Without this, ScreenWidth/Height may still be 0 and EnsureCacheAsync bails.
+                            await Task.Yield();
                             RedrawMap();
                             return;
                         }
@@ -2216,11 +2219,18 @@ namespace WinMaps
 
             if (_renderer != null)
             {
-                _renderer.Draw(args.DrawingSession, sender);
-
-                if (!double.IsNaN(_gpsLat))
+                try
                 {
-                    _renderer.DrawGpsPosition(args.DrawingSession, _gpsLat, _gpsLon, _gpsAccuracy);
+                    _renderer.Draw(args.DrawingSession, sender);
+
+                    if (!double.IsNaN(_gpsLat))
+                    {
+                        _renderer.DrawGpsPosition(args.DrawingSession, _gpsLat, _gpsLon, _gpsAccuracy);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _lastRenderError = ex.ToString();
                 }
             }
         }
