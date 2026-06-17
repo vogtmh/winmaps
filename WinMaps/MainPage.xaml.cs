@@ -68,6 +68,13 @@ namespace WinMaps
         private bool _followGps = false;
         private bool _initialGpsCentered = false;
 
+        // GPS smoothing: interpolate displayed position toward target
+        private double _gpsTargetLat = double.NaN;
+        private double _gpsTargetLon = double.NaN;
+        private double _gpsTargetAccuracy = 0;
+        private DispatcherTimer _gpsAnimTimer;
+        private const double GpsSmoothFactor = 0.25; // lerp fraction per tick (higher = faster snap)
+
         // Pan state
         private bool _isPanning = false;
         private Point _panStart;
@@ -2220,15 +2227,20 @@ namespace WinMaps
 
         private async void RedrawMap()
         {
-            if (_renderer != null)
-            {
-                await _renderer.EnsureCacheAsync();
-            }
-
+            // Show stale cached data immediately so the UI never freezes.
+            // The old geometry is at the wrong zoom/position but the Mercator
+            // offset math auto-adjusts, giving instant visual feedback.
             MapCanvas.Invalidate();
             TxtZoom.Text = $"Z{_viewport.Zoom:F0}";
             TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
             SaveViewport();
+
+            // Then reload data in the background and repaint when ready
+            if (_renderer != null)
+            {
+                await _renderer.EnsureCacheAsync();
+                MapCanvas.Invalidate();
+            }
         }
 
         private void MapCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -2386,25 +2398,82 @@ namespace WinMaps
 
         private void UpdateGpsPosition(Geocoordinate coord)
         {
-            _gpsLat = coord.Point.Position.Latitude;
-            _gpsLon = coord.Point.Position.Longitude;
-            _gpsAccuracy = coord.Accuracy;
+            double newLat = coord.Point.Position.Latitude;
+            double newLon = coord.Point.Position.Longitude;
+            double newAcc = coord.Accuracy;
+
+            _gpsTargetLat = newLat;
+            _gpsTargetLon = newLon;
+            _gpsTargetAccuracy = newAcc;
+
+            // First fix: snap immediately, no animation
+            if (double.IsNaN(_gpsLat))
+            {
+                _gpsLat = newLat;
+                _gpsLon = newLon;
+                _gpsAccuracy = newAcc;
+            }
 
             if (!_initialGpsCentered)
             {
-                _viewport.CenterLat = _gpsLat;
-                _viewport.CenterLon = _gpsLon;
+                _viewport.CenterLat = newLat;
+                _viewport.CenterLon = newLon;
                 _initialGpsCentered = true;
                 _followGps = true;
                 UpdateGpsIcon();
             }
-            else if (_followGps)
+
+            // Start animation timer if not already running
+            if (_gpsAnimTimer == null)
+            {
+                _gpsAnimTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
+                _gpsAnimTimer.Tick += GpsAnimTimer_Tick;
+                _gpsAnimTimer.Start();
+            }
+        }
+
+        private void GpsAnimTimer_Tick(object sender, object e)
+        {
+            if (double.IsNaN(_gpsTargetLat))
+            {
+                _gpsAnimTimer.Stop();
+                _gpsAnimTimer = null;
+                return;
+            }
+
+            // Lerp displayed position toward target
+            double dLat = _gpsTargetLat - _gpsLat;
+            double dLon = _gpsTargetLon - _gpsLon;
+
+            // Stop animating when close enough (sub-pixel at any zoom)
+            if (dLat * dLat + dLon * dLon < 1e-14)
+            {
+                _gpsLat = _gpsTargetLat;
+                _gpsLon = _gpsTargetLon;
+                _gpsAccuracy = _gpsTargetAccuracy;
+                _gpsAnimTimer.Stop();
+                _gpsAnimTimer = null;
+
+                if (_followGps)
+                {
+                    _viewport.CenterLat = _gpsLat;
+                    _viewport.CenterLon = _gpsLon;
+                }
+                MapCanvas.Invalidate();
+                return;
+            }
+
+            _gpsLat += dLat * GpsSmoothFactor;
+            _gpsLon += dLon * GpsSmoothFactor;
+            _gpsAccuracy += (_gpsTargetAccuracy - _gpsAccuracy) * GpsSmoothFactor;
+
+            if (_followGps)
             {
                 _viewport.CenterLat = _gpsLat;
                 _viewport.CenterLon = _gpsLon;
             }
 
-            RedrawMap();
+            MapCanvas.Invalidate();
         }
 
         // ---- Viewport persistence ----
