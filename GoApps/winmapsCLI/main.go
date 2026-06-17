@@ -226,9 +226,10 @@ func downloadPbf(url, destPath string) error {
 // ---------------------------------------------------------------------------
 
 const (
-	TypeRoad  = 0
-	TypeWater = 1
-	TypePark  = 2
+	TypeRoad     = 0
+	TypeWater    = 1
+	TypePark     = 2
+	TypeBuilding = 3
 )
 
 var roadKeys = map[string]bool{
@@ -271,6 +272,20 @@ func classifyWay(tags map[string]string) (wayType int, subType string, ok bool) 
 				return TypePark, v, true
 			}
 		}
+	}
+	// Buildings: checked separately so road/water/park take priority
+	if _, hasBldg := tags["building"]; hasBldg {
+		name := tags["name"]
+		// Encode name and amenity/shop hint into subtype using unit separator
+		subHint := ""
+		for _, k := range []string{"amenity", "shop", "tourism", "office"} {
+			if v, ok := tags[k]; ok {
+				subHint = v
+				break
+			}
+		}
+		// Format: "name\x1fhint" (unit separator as delimiter; both may be empty)
+		return TypeBuilding, name + "\x1f" + subHint, true
 	}
 	return 0, "", false
 }

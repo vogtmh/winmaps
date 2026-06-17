@@ -24,6 +24,9 @@ namespace WinMaps.Rendering
         public Color PoiHaloColor;
         public Color PoiTextColor;
         public Dictionary<string, Color> PoiColors;
+        public Color BuildingFill;
+        public Color BuildingStroke;
+        public Color BuildingLabelColor;
 
         public Color GetPoiColor(string type)
         {
@@ -53,6 +56,15 @@ namespace WinMaps.Rendering
             return DefaultParkColor;
         }
 
+        // Decode building subtype encoded as "name\x1fhint"
+        public static (string name, string hint) DecodeBuildingSubType(string subType)
+        {
+            if (subType == null) return ("", "");
+            int sep = subType.IndexOf('\x1f');
+            if (sep < 0) return (subType, "");
+            return (subType.Substring(0, sep), subType.Substring(sep + 1));
+        }
+
         // ---- Built-in themes ----
 
         public static readonly MapTheme Light = new MapTheme
@@ -71,10 +83,10 @@ namespace WinMaps.Rendering
             PoiDotColor = Color.FromArgb(255, 180, 60, 60),
             PoiHaloColor = Colors.White,
             PoiTextColor = Color.FromArgb(255, 80, 40, 40),
+            BuildingFill = Color.FromArgb(255, 218, 212, 205),
+            BuildingStroke = Color.FromArgb(255, 185, 178, 168),
+            BuildingLabelColor = Color.FromArgb(255, 100, 90, 80),
             PoiColors = new Dictionary<string, Color>
-            {
-                ["amenity"] = Color.FromArgb(255, 180, 60, 60),
-                ["shop"] = Color.FromArgb(255, 172, 121, 44),
                 ["tourism"] = Color.FromArgb(255, 0, 146, 115),
                 ["healthcare"] = Color.FromArgb(255, 200, 40, 40),
                 ["office"] = Color.FromArgb(255, 100, 100, 160),
@@ -138,6 +150,9 @@ namespace WinMaps.Rendering
             PoiDotColor = Color.FromArgb(255, 200, 120, 100),
             PoiHaloColor = Color.FromArgb(255, 28, 28, 32),
             PoiTextColor = Color.FromArgb(255, 210, 180, 170),
+            BuildingFill = Color.FromArgb(255, 45, 45, 52),
+            BuildingStroke = Color.FromArgb(255, 65, 65, 75),
+            BuildingLabelColor = Color.FromArgb(255, 160, 150, 140),
             PoiColors = new Dictionary<string, Color>
             {
                 ["amenity"] = Color.FromArgb(255, 200, 120, 100),
@@ -205,6 +220,9 @@ namespace WinMaps.Rendering
             PoiDotColor = Color.FromArgb(255, 214, 72, 49),
             PoiHaloColor = Colors.White,
             PoiTextColor = Color.FromArgb(255, 100, 50, 40),
+            BuildingFill = Color.FromArgb(255, 210, 207, 200),
+            BuildingStroke = Color.FromArgb(255, 180, 176, 168),
+            BuildingLabelColor = Color.FromArgb(255, 100, 90, 80),
             PoiColors = new Dictionary<string, Color>
             {
                 ["amenity"] = Color.FromArgb(255, 214, 72, 49),
@@ -280,6 +298,9 @@ namespace WinMaps.Rendering
                 ["office"] = Color.FromArgb(255, 120, 100, 255),
             },
             PoiTextColor = Color.FromArgb(255, 200, 100, 255),
+            BuildingFill = Color.FromArgb(255, 18, 18, 30),
+            BuildingStroke = Color.FromArgb(255, 60, 60, 100),
+            BuildingLabelColor = Color.FromArgb(255, 100, 100, 200),
             RoadColors = new Dictionary<string, Color>
             {
                 ["motorway"] = Color.FromArgb(255, 255, 0, 100),

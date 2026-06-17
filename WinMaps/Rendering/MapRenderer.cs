@@ -63,8 +63,7 @@ namespace WinMaps.Rendering
             _frameOffsetX = (float)(-_viewport.LonToMercatorX(_viewport.CenterLon) + _viewport.ScreenWidth / 2.0);
             _frameOffsetY = (float)(-_viewport.LatToMercatorY(_viewport.CenterLat) + _viewport.ScreenHeight / 2.0);
 
-            // Layer order: parks → water → road outlines → roads
-            // Batch all ways of same color into a single CanvasGeometry for massive draw-call reduction
+            // Layer order: parks → water → buildings → road outlines → roads → POIs
 
             // Parks: batch by park color
             DrawBatchedAreas(ds, rc, (int)Pbf.OsmElementType.Park,
@@ -79,6 +78,10 @@ namespace WinMaps.Rendering
             DrawBatchedLines(ds, rc, (int)Pbf.OsmElementType.Water,
                 w => _theme.WaterColor,
                 w => GetWaterwayWidth(w.SubType, _viewport.Zoom));
+
+            // Buildings (only at zoom >= 15)
+            if (_viewport.Zoom >= 15)
+                DrawBuildings(ds, rc);
 
             // Road outlines (only at zoom >= 13)
             if (_viewport.Zoom >= 13)
@@ -101,6 +104,61 @@ namespace WinMaps.Rendering
         }
 
         private const int MaxWaysPerBatch = 500;
+
+        private void DrawBuildings(CanvasDrawingSession ds, ICanvasResourceCreator rc = null)
+        {
+            bool showLabels = _viewport.Zoom >= 17;
+            float fontSize = 9f;
+
+            using (var textFormat = showLabels ? new CanvasTextFormat
+            {
+                FontSize = fontSize,
+                HorizontalAlignment = CanvasHorizontalAlignment.Center,
+                VerticalAlignment = CanvasVerticalAlignment.Center
+            } : null)
+            {
+                foreach (var way in _cachedWays)
+                {
+                    if (way.Type != (int)Pbf.OsmElementType.Building) continue;
+                    if (way.MercX.Length < 3 || !way.IsClosed) continue;
+
+                    float ox = _frameOffsetX, oy = _frameOffsetY;
+
+                    // Build path
+                    using (var pb = new CanvasPathBuilder(ds))
+                    {
+                        pb.BeginFigure(way.MercX[0] + ox, way.MercY[0] + oy);
+                        for (int i = 1; i < way.MercX.Length; i++)
+                            pb.AddLine(way.MercX[i] + ox, way.MercY[i] + oy);
+                        pb.EndFigure(CanvasFigureLoop.Closed);
+
+                        using (var geo = CanvasGeometry.CreatePath(pb))
+                        {
+                            ds.FillGeometry(geo, _theme.BuildingFill);
+                            ds.DrawGeometry(geo, _theme.BuildingStroke, 0.8f);
+                        }
+                    }
+
+                    // Label named buildings at zoom >= 17
+                    if (showLabels && textFormat != null)
+                    {
+                        var (name, _) = MapTheme.DecodeBuildingSubType(way.SubType);
+                        if (string.IsNullOrEmpty(name)) continue;
+
+                        // Centroid approximation: average of points
+                        float cx = 0, cy = 0;
+                        for (int i = 0; i < way.MercX.Length; i++) { cx += way.MercX[i]; cy += way.MercY[i]; }
+                        cx = cx / way.MercX.Length + ox;
+                        cy = cy / way.MercY.Length + oy;
+
+                        // Skip if off screen
+                        if (cx < 0 || cx > _viewport.ScreenWidth || cy < 0 || cy > _viewport.ScreenHeight) continue;
+
+                        ds.DrawText(name, cx, cy, _theme.BuildingLabelColor, textFormat);
+                    }
+                }
+            }
+        }
 
         private void DrawBatchedAreas(CanvasDrawingSession ds, ICanvasResourceCreator rc,
             int typeFilter, Func<CachedWay, Color> colorFunc, Func<CachedWay, bool> filter = null)

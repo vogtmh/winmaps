@@ -12,7 +12,8 @@ namespace WinMaps.Pbf
     {
         Road = 0,
         Water = 1,
-        Park = 2
+        Park = 2,
+        Building = 3
     }
 
     internal struct OsmNode
@@ -506,6 +507,9 @@ namespace WinMaps.Pbf
             // Classify the way by its tags
             OsmElementType? wayType = null;
             string subType = null;
+            bool hasBuilding = false;
+            string buildingName = null;
+            string buildingHint = null;
 
             int tagCount = Math.Min(keys.Count, vals.Count);
             for (int i = 0; i < tagCount; i++)
@@ -551,6 +555,20 @@ namespace WinMaps.Pbf
                     subType = val;
                     break;
                 }
+                else if (key == "building")
+                    hasBuilding = true;
+                else if (key == "name")
+                    buildingName = val;
+                else if ((key == "amenity" || key == "shop" || key == "tourism" || key == "office") && buildingHint == null)
+                    buildingHint = val;
+            }
+
+            // Buildings: only if no higher-priority type matched
+            if (wayType == null && hasBuilding)
+            {
+                wayType = OsmElementType.Building;
+                // Encode as "name\x1fhint" to match Go tool format
+                subType = (buildingName ?? "") + "\x1f" + (buildingHint ?? "");
             }
 
             if (wayType == null || refsData == null)
