@@ -201,7 +201,8 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions> Background="Transparent" Margin="0,0,8,0"
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="BtnWorldMapBack" Background="Transparent" Margin="0,0,8,0"
                             Click="BtnWorldMapBack_Click">
                         <FontIcon Glyph="&#xE72B;" FontFamily="Segoe MDL2 Assets" FontSize="16" />
                     </Button>
