@@ -254,9 +254,6 @@ namespace WinMaps
 
                             OverlayPanel.Visibility = Visibility.Collapsed;
                             StartGps();
-                            // Defer RedrawMap so the canvas has been laid out with its final size.
-                            // Without this, ScreenWidth/Height may still be 0 and EnsureCacheAsync bails.
-                            await Task.Yield();
                             RedrawMap();
                             return;
                         }
@@ -2220,6 +2217,13 @@ namespace WinMaps
 
             if (_renderer != null)
             {
+                // If the cache is empty but we now have valid dimensions, trigger a load.
+                // This handles the startup race where RedrawMap ran before layout completed.
+                if (!_renderer.HasCachedData && sender.ActualWidth > 0 && sender.ActualHeight > 0)
+                {
+                    RedrawMap();
+                }
+
                 try
                 {
                     _renderer.Draw(args.DrawingSession, sender);
