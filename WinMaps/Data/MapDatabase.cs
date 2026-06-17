@@ -504,7 +504,7 @@ namespace WinMaps.Data
                     {
                         int type = reader.GetInt32(0);
                         string subType = reader.IsDBNull(1) ? null : reader.GetString(1);
-                        byte[] blob = (byte[])reader["geometry"];
+                        byte[] blob = (byte[])reader.GetValue(2);
                         var points = new List<(double, double)>();
                         DecodeGeometry(blob, points);
                         if (points.Count >= 2)
@@ -548,7 +548,7 @@ namespace WinMaps.Data
                     {
                         int type = reader.GetInt32(0);
                         string subType = reader.IsDBNull(1) ? null : reader.GetString(1);
-                        byte[] blob = (byte[])reader["geometry"];
+                        byte[] blob = (byte[])reader.GetValue(2);
                         var points = new List<(double, double)>();
                         DecodeGeometry(blob, points);
                         result.Add((type, subType, points));
