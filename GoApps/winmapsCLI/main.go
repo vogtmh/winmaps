@@ -244,6 +244,10 @@ var poiKeys = map[string]bool{
 	"amenity": true, "shop": true, "tourism": true, "healthcare": true, "office": true,
 }
 
+var placeValues = map[string]bool{
+	"city": true, "town": true, "village": true, "hamlet": true, "suburb": true,
+}
+
 func classifyWay(tags map[string]string) (wayType int, subType string, ok bool) {
 	for k, v := range tags {
 		switch k {
@@ -325,6 +329,21 @@ func classifyPoi(tags map[string]string) (poiType, poiSubType, name string, ok b
 	return "", "", "", false
 }
 
+func classifyPlace(tags map[string]string) (placeType, name string, ok bool) {
+	for k, v := range tags {
+		if k == "place" && placeValues[v] {
+			placeType = v
+		}
+		if k == "name" {
+			name = v
+		}
+	}
+	if placeType != "" && name != "" {
+		return placeType, name, true
+	}
+	return "", "", false
+}
+
 // ---------------------------------------------------------------------------
 // Geometry encoding (matches C# MapDatabase.EncodeGeometry)
 // Packed little-endian doubles: [lat0, lon0, lat1, lon1, ...]
@@ -386,6 +405,13 @@ func createDB(dbPath string) (*sql.DB, error) {
 			lat REAL NOT NULL,
 			lon REAL NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS places (
+			id INTEGER PRIMARY KEY,
+			place_type TEXT NOT NULL,
+			name TEXT NOT NULL,
+			lat REAL NOT NULL,
+			lon REAL NOT NULL
+		)`,
 	}
 	for _, s := range schema {
 		if _, err := db.Exec(s); err != nil {
@@ -402,6 +428,7 @@ func createIndexes(db *sql.DB) {
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_ways_bounds ON ways(min_lat, max_lat, min_lon, max_lon)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_ways_type_bounds ON ways(type, min_lat, max_lat, min_lon, max_lon)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_pois_coords ON pois(lat, lon)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_places_coords ON places(lat, lon)")
 }
 
 // ---------------------------------------------------------------------------
@@ -431,8 +458,9 @@ func (h *pass1Handler) ReadWay(w gosmparse.Way) {
 }
 
 const (
-	wayInsertSQL = `INSERT OR IGNORE INTO ways(id, type, subtype, geometry, min_lat, max_lat, min_lon, max_lon) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`
-	poiInsertSQL = `INSERT OR IGNORE INTO pois(id, type, subtype, name, lat, lon) VALUES(?, ?, ?, ?, ?, ?)`
+	wayInsertSQL   = `INSERT OR IGNORE INTO ways(id, type, subtype, geometry, min_lat, max_lat, min_lon, max_lon) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`
+	poiInsertSQL   = `INSERT OR IGNORE INTO pois(id, type, subtype, name, lat, lon) VALUES(?, ?, ?, ?, ?, ?)`
+	placeInsertSQL = `INSERT OR IGNORE INTO places(id, place_type, name, lat, lon) VALUES(?, ?, ?, ?, ?)`
 )
 
 type wayRow struct {
@@ -451,19 +479,28 @@ type poiRow struct {
 	lon     float64
 }
 
+type placeRow struct {
+	id       int64
+	pt, name string
+	lat      float64
+	lon      float64
+}
+
 // pass2Handler is called concurrently by gosmparse.
 // It only reads shared read-only slices (nodeIDs, latBuf, lonBuf) and
 // pushes results onto buffered channels consumed by a single writer goroutine.
 type pass2Handler struct {
-	nodeIDs []int64
-	latBuf  []float64
-	lonBuf  []float64
-	wayCh   chan wayRow
-	poiCh   chan poiRow
+	nodeIDs  []int64
+	latBuf   []float64
+	lonBuf   []float64
+	wayCh    chan wayRow
+	poiCh    chan poiRow
+	placeCh  chan placeRow
 	// atomic counters safe for concurrent increment
-	nodeCount int64
-	wayCount  int64
-	poiCount  int64
+	nodeCount  int64
+	wayCount   int64
+	poiCount   int64
+	placeCount int64
 }
 
 func (h *pass2Handler) ReadRelation(r gosmparse.Relation) {}
@@ -480,6 +517,10 @@ func (h *pass2Handler) ReadNode(n gosmparse.Node) {
 		if pt, ps, pn, ok := classifyPoi(n.Tags); ok {
 			h.poiCh <- poiRow{n.ID, pt, ps, pn, n.Lat, n.Lon}
 			atomic.AddInt64(&h.poiCount, 1)
+		}
+		if pt, name, ok := classifyPlace(n.Tags); ok {
+			h.placeCh <- placeRow{n.ID, pt, name, n.Lat, n.Lon}
+			atomic.AddInt64(&h.placeCount, 1)
 		}
 	}
 }
@@ -570,6 +611,7 @@ func importPbf(pbfPath, dbPath string) error {
 	// Buffered channels decouple gosmparse goroutines from the single DB writer.
 	wayCh := make(chan wayRow, 64*1024)
 	poiCh := make(chan poiRow, 16*1024)
+	placeCh := make(chan placeRow, 4*1024)
 
 	h2 := &pass2Handler{
 		nodeIDs: nodeIDs,
@@ -577,6 +619,7 @@ func importPbf(pbfPath, dbPath string) error {
 		lonBuf:  lonBuf,
 		wayCh:   wayCh,
 		poiCh:   poiCh,
+		placeCh: placeCh,
 	}
 
 	// Single writer goroutine — all DB access is serialized here.
@@ -591,24 +634,28 @@ func importPbf(pbfPath, dbPath string) error {
 			// drain channels so producers don't block
 			for range wayCh {}
 			for range poiCh {}
+			for range placeCh {}
 			return
 		}
 		wayStmt, _ := tx.Prepare(wayInsertSQL)
 		poiStmt, _ := tx.Prepare(poiInsertSQL)
+		placeStmt, _ := tx.Prepare(placeInsertSQL)
 		var batchCount int64
 		lastReport := time.Now()
 
 		flush := func() {
 			wayStmt.Close()
 			poiStmt.Close()
+			placeStmt.Close()
 			tx.Commit()
 			tx, _ = db.Begin()
 			wayStmt, _ = tx.Prepare(wayInsertSQL)
 			poiStmt, _ = tx.Prepare(poiInsertSQL)
+			placeStmt, _ = tx.Prepare(placeInsertSQL)
 			batchCount = 0
 		}
 
-		for wayCh != nil || poiCh != nil {
+		for wayCh != nil || poiCh != nil || placeCh != nil {
 			select {
 			case r, ok := <-wayCh:
 				if !ok {
@@ -624,6 +671,13 @@ func importPbf(pbfPath, dbPath string) error {
 				}
 				poiStmt.Exec(r.id, r.pt, r.ps, nullStr(r.pn), r.lat, r.lon)
 				batchCount++
+			case r, ok := <-placeCh:
+				if !ok {
+					placeCh = nil
+					continue
+				}
+				placeStmt.Exec(r.id, r.pt, r.name, r.lat, r.lon)
+				batchCount++
 			}
 			if batchCount >= 500_000 {
 				flush()
@@ -632,23 +686,27 @@ func importPbf(pbfPath, dbPath string) error {
 				nc := atomic.LoadInt64(&h2.nodeCount)
 				wc := atomic.LoadInt64(&h2.wayCount)
 				pc := atomic.LoadInt64(&h2.poiCount)
-				fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk  ", nc/1000, wc/1000, pc/1000)
+				lc := atomic.LoadInt64(&h2.placeCount)
+				fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk | Places: %d  ", nc/1000, wc/1000, pc/1000, lc)
 				lastReport = time.Now()
 			}
 		}
 		wayStmt.Close()
 		poiStmt.Close()
+		placeStmt.Close()
 		tx.Commit()
 	}()
 
 	if err := gosmparse.NewDecoder(f2).Parse(h2); err != nil {
 		close(wayCh)
 		close(poiCh)
+		close(placeCh)
 		writerDone.Wait()
 		return err
 	}
 	close(wayCh)
 	close(poiCh)
+	close(placeCh)
 	writerDone.Wait()
 	if writeErr != nil {
 		return writeErr
@@ -658,7 +716,8 @@ func importPbf(pbfPath, dbPath string) error {
 	nc := atomic.LoadInt64(&h2.nodeCount)
 	wc := atomic.LoadInt64(&h2.wayCount)
 	pc := atomic.LoadInt64(&h2.poiCount)
-	fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk (%s)\n", nc/1000, wc/1000, pc/1000, pass2Dur.Round(time.Millisecond))
+	lc := atomic.LoadInt64(&h2.placeCount)
+	fmt.Printf("\r  Nodes: %dk | Ways: %dk | POIs: %dk | Places: %d (%s)\n", nc/1000, wc/1000, pc/1000, lc, pass2Dur.Round(time.Millisecond))
 
 	// Free memory before indexing
 	nodeIDs = nil
@@ -686,6 +745,7 @@ func importPbf(pbfPath, dbPath string) error {
 	fmt.Printf("  DB size:     %.1f MB\n", float64(dbStat.Size())/1048576)
 	fmt.Printf("  Ways:        %d\n", wc)
 	fmt.Printf("  POIs:        %d\n", pc)
+	fmt.Printf("  Places:      %d\n", lc)
 	fmt.Printf("  Nodes read:  %d\n", nc)
 	fmt.Printf("  Pass 1:      %s\n", pass1Dur.Round(time.Millisecond))
 	fmt.Printf("  Pass 2:      %s\n", pass2Dur.Round(time.Millisecond))

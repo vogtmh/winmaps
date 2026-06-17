@@ -41,12 +41,27 @@ namespace WinMaps.Pbf
         public double Lon;
     }
 
+    internal struct OsmPlace
+    {
+        public long Id;
+        public string PlaceType; // city, town, village, hamlet, suburb
+        public string Name;
+        public double Lat;
+        public double Lon;
+    }
+
     internal class OsmPbfParser
     {
         public event Action<OsmNode> OnNode;
         public event Action<OsmWay> OnWay;
         public event Action<OsmPoi> OnPoi;
+        public event Action<OsmPlace> OnPlace;
         public event Action<long, long> OnProgress; // bytesRead, totalBytes
+
+        private static readonly HashSet<string> PlaceValues = new HashSet<string>
+        {
+            "city", "town", "village", "hamlet", "suburb"
+        };
 
         private static readonly HashSet<string> GenericPoiSubTypes = new HashSet<string>
         {
@@ -400,11 +415,11 @@ namespace WinMaps.Pbf
             long runId = 0, runLat = 0, runLon = 0;
             int count = Math.Min(ids.Count, Math.Min(lats.Count, lons.Count));
 
-            // Decode keys_vals for POI detection
+            // Decode keys_vals for POI and place detection
             // Format: interleaved [key_idx, val_idx, key_idx, val_idx, ..., 0] per node
             // A 0 separates nodes
             var kvValues = new List<long>();
-            if (kvData != null && OnPoi != null)
+            if (kvData != null && (OnPoi != null || OnPlace != null))
             {
                 PbfReader.ReadPackedVarInts(kvData, kvOff, kvLen, v => kvValues.Add((long)v));
             }
@@ -421,10 +436,11 @@ namespace WinMaps.Pbf
 
                 OnNode?.Invoke(new OsmNode { Id = runId, Lat = lat, Lon = lon });
 
-                // Check tags for POI classification
-                if (kvValues.Count > 0 && OnPoi != null)
+                // Check tags for POI and place classification
+                if (kvValues.Count > 0 && (OnPoi != null || OnPlace != null))
                 {
                     string poiType = null, poiSubType = null, poiName = null;
+                    string placeType = null;
 
                     while (kvPos < kvValues.Count && kvValues[kvPos] != 0)
                     {
@@ -441,6 +457,10 @@ namespace WinMaps.Pbf
                             poiType = key;
                             poiSubType = val;
                         }
+                        else if (key == "place" && PlaceValues.Contains(val))
+                        {
+                            placeType = val;
+                        }
                         else if (key == "name")
                         {
                             poiName = val;
@@ -449,7 +469,20 @@ namespace WinMaps.Pbf
                     // Skip the 0 separator
                     if (kvPos < kvValues.Count) kvPos++;
 
-                    if (poiType != null)
+                    // Emit place if it has a name
+                    if (placeType != null && !string.IsNullOrEmpty(poiName) && OnPlace != null)
+                    {
+                        OnPlace.Invoke(new OsmPlace
+                        {
+                            Id = runId,
+                            PlaceType = placeType,
+                            Name = poiName,
+                            Lat = lat,
+                            Lon = lon
+                        });
+                    }
+
+                    if (poiType != null && OnPoi != null)
                     {
                         // Skip generic subtypes that carry no useful information without a name
                         if (string.IsNullOrEmpty(poiName) && GenericPoiSubTypes.Contains(poiSubType))

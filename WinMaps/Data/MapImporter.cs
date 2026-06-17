@@ -165,6 +165,21 @@ namespace WinMaps.Data
                         }
                     };
 
+                    parser.OnPlace += place =>
+                    {
+                        db.InsertPlace(place.Id, place.PlaceType, place.Name,
+                            place.Lat, place.Lon, tx);
+
+                        batchCount++;
+                        if (batchCount >= BatchSize)
+                        {
+                            tx.Commit();
+                            tx.Dispose();
+                            tx = db.BeginTransaction();
+                            batchCount = 0;
+                        }
+                    };
+
                     parser.OnProgress += (pos, total) =>
                     {
                         double pct = total > 0 ? 50.0 + (double)pos / total * 50.0 : 50; // 50-100%

@@ -17,6 +17,7 @@ namespace WinMaps.Data
         // Prepared statement for import
         private SqliteCommand _insertWayCmd;
         private SqliteCommand _insertPoiCmd;
+        private SqliteCommand _insertPlaceCmd;
 
         public MapDatabase(string dbPath)
         {
@@ -65,6 +66,15 @@ namespace WinMaps.Data
                     type TEXT NOT NULL,
                     subtype TEXT,
                     name TEXT,
+                    lat REAL NOT NULL,
+                    lon REAL NOT NULL
+                )");
+
+            Execute(@"
+                CREATE TABLE IF NOT EXISTS places (
+                    id INTEGER PRIMARY KEY,
+                    place_type TEXT NOT NULL,
+                    name TEXT NOT NULL,
                     lat REAL NOT NULL,
                     lon REAL NOT NULL
                 )");
@@ -170,6 +180,7 @@ namespace WinMaps.Data
             Execute("CREATE INDEX IF NOT EXISTS idx_ways_bounds ON ways(min_lat, max_lat, min_lon, max_lon)");
             Execute("CREATE INDEX IF NOT EXISTS idx_ways_type_bounds ON ways(type, min_lat, max_lat, min_lon, max_lon)");
             Execute("CREATE INDEX IF NOT EXISTS idx_pois_coords ON pois(lat, lon)");
+            Execute("CREATE INDEX IF NOT EXISTS idx_places_coords ON places(lat, lon)");
         }
 
         /// <summary>
@@ -181,6 +192,7 @@ namespace WinMaps.Data
             Execute("DROP INDEX IF EXISTS idx_ways_bounds");
             Execute("DROP INDEX IF EXISTS idx_ways_type_bounds");
             Execute("DROP INDEX IF EXISTS idx_pois_coords");
+            Execute("DROP INDEX IF EXISTS idx_places_coords");
         }
 
         public SqliteTransaction BeginTransaction()
@@ -217,6 +229,16 @@ namespace WinMaps.Data
             _insertPoiCmd.Parameters.Add(new SqliteParameter("@lat", SqliteType.Real));
             _insertPoiCmd.Parameters.Add(new SqliteParameter("@lon", SqliteType.Real));
             _insertPoiCmd.Prepare();
+
+            _insertPlaceCmd = _connection.CreateCommand();
+            _insertPlaceCmd.CommandText = @"INSERT OR IGNORE INTO places(id, place_type, name, lat, lon)
+                                            VALUES(@id, @pt, @name, @lat, @lon)";
+            _insertPlaceCmd.Parameters.Add(new SqliteParameter("@id", SqliteType.Integer));
+            _insertPlaceCmd.Parameters.Add(new SqliteParameter("@pt", SqliteType.Text));
+            _insertPlaceCmd.Parameters.Add(new SqliteParameter("@name", SqliteType.Text));
+            _insertPlaceCmd.Parameters.Add(new SqliteParameter("@lat", SqliteType.Real));
+            _insertPlaceCmd.Parameters.Add(new SqliteParameter("@lon", SqliteType.Real));
+            _insertPlaceCmd.Prepare();
         }
 
         public void DisposeInsertStatement()
@@ -225,6 +247,8 @@ namespace WinMaps.Data
             _insertWayCmd = null;
             _insertPoiCmd?.Dispose();
             _insertPoiCmd = null;
+            _insertPlaceCmd?.Dispose();
+            _insertPlaceCmd = null;
         }
 
         public void InsertWay(long id, int type, string subType, byte[] geometry,
@@ -253,6 +277,18 @@ namespace WinMaps.Data
             _insertPoiCmd.Parameters["@lat"].Value = lat;
             _insertPoiCmd.Parameters["@lon"].Value = lon;
             _insertPoiCmd.ExecuteNonQuery();
+        }
+
+        public void InsertPlace(long id, string placeType, string name,
+            double lat, double lon, SqliteTransaction tx)
+        {
+            _insertPlaceCmd.Transaction = tx;
+            _insertPlaceCmd.Parameters["@id"].Value = id;
+            _insertPlaceCmd.Parameters["@pt"].Value = placeType;
+            _insertPlaceCmd.Parameters["@name"].Value = name;
+            _insertPlaceCmd.Parameters["@lat"].Value = lat;
+            _insertPlaceCmd.Parameters["@lon"].Value = lon;
+            _insertPlaceCmd.ExecuteNonQuery();
         }
 
         public void SetMetadata(string key, string value)
@@ -624,6 +660,55 @@ namespace WinMaps.Data
                             reader.GetDouble(4)));
                     }
                 }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Queries places within the given bounding box, filtered by zoom level.
+        /// </summary>
+        public List<(string placeType, string name, double lat, double lon)> QueryPlaces(
+            double minLat, double maxLat, double minLon, double maxLon, double zoom)
+        {
+            var result = new List<(string, string, double, double)>();
+
+            string typeFilter;
+            if (zoom < 9)
+                typeFilter = "('city')";
+            else if (zoom < 12)
+                typeFilter = "('city','town')";
+            else if (zoom < 14)
+                typeFilter = "('city','town','village','suburb')";
+            else
+                typeFilter = "('city','town','village','suburb','hamlet')";
+
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "SELECT place_type, name, lat, lon FROM places" +
+                                  " WHERE lat >= @minLat AND lat <= @maxLat" +
+                                  "   AND lon >= @minLon AND lon <= @maxLon" +
+                                  "   AND place_type IN " + typeFilter;
+                cmd.Parameters.AddWithValue("@minLat", minLat);
+                cmd.Parameters.AddWithValue("@maxLat", maxLat);
+                cmd.Parameters.AddWithValue("@minLon", minLon);
+                cmd.Parameters.AddWithValue("@maxLon", maxLon);
+
+                try
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            result.Add((
+                                reader.GetString(0),
+                                reader.GetString(1),
+                                reader.GetDouble(2),
+                                reader.GetDouble(3)));
+                        }
+                    }
+                }
+                catch { /* places table may not exist in old DBs */ }
             }
 
             return result;

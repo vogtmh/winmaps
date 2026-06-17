@@ -27,6 +27,9 @@ namespace WinMaps.Rendering
         public Color BuildingFill;
         public Color BuildingStroke;
         public Color BuildingLabelColor;
+        public Color PlaceLabelColor;
+        public Color PlaceLabelColorLight;
+        public Color PlaceLabelHaloColor;
 
         public Color GetPoiColor(string type)
         {
@@ -86,6 +89,9 @@ namespace WinMaps.Rendering
             BuildingFill = Color.FromArgb(255, 217, 208, 201),
             BuildingStroke = Color.FromArgb(255, 195, 183, 173),
             BuildingLabelColor = Color.FromArgb(255, 100, 90, 80),
+            PlaceLabelColor = Color.FromArgb(255, 50, 50, 50),
+            PlaceLabelColorLight = Color.FromArgb(255, 140, 140, 140),
+            PlaceLabelHaloColor = Color.FromArgb(200, 255, 255, 255),
             PoiColors = new Dictionary<string, Color>
             {
                 ["amenity"] = Color.FromArgb(255, 180, 60, 60),
@@ -165,6 +171,9 @@ namespace WinMaps.Rendering
             BuildingFill = Color.FromArgb(255, 45, 45, 52),
             BuildingStroke = Color.FromArgb(255, 65, 65, 75),
             BuildingLabelColor = Color.FromArgb(255, 160, 150, 140),
+            PlaceLabelColor = Color.FromArgb(255, 200, 200, 200),
+            PlaceLabelColorLight = Color.FromArgb(255, 120, 120, 120),
+            PlaceLabelHaloColor = Color.FromArgb(200, 28, 28, 32),
             PoiColors = new Dictionary<string, Color>
             {
                 ["amenity"] = Color.FromArgb(255, 200, 120, 100),
@@ -244,6 +253,9 @@ namespace WinMaps.Rendering
             BuildingFill = Color.FromArgb(255, 210, 207, 200),
             BuildingStroke = Color.FromArgb(255, 180, 176, 168),
             BuildingLabelColor = Color.FromArgb(255, 100, 90, 80),
+            PlaceLabelColor = Color.FromArgb(255, 50, 50, 50),
+            PlaceLabelColorLight = Color.FromArgb(255, 140, 140, 140),
+            PlaceLabelHaloColor = Color.FromArgb(200, 255, 255, 255),
             PoiColors = new Dictionary<string, Color>
             {
                 ["amenity"] = Color.FromArgb(255, 214, 72, 49),
@@ -331,6 +343,9 @@ namespace WinMaps.Rendering
             BuildingFill = Color.FromArgb(255, 18, 18, 30),
             BuildingStroke = Color.FromArgb(255, 60, 60, 100),
             BuildingLabelColor = Color.FromArgb(255, 100, 100, 200),
+            PlaceLabelColor = Color.FromArgb(255, 0, 230, 255),
+            PlaceLabelColorLight = Color.FromArgb(255, 0, 130, 150),
+            PlaceLabelHaloColor = Color.FromArgb(200, 10, 10, 18),
             RoadColors = new Dictionary<string, Color>
             {
                 ["motorway"] = Color.FromArgb(255, 255, 0, 100),
@@ -402,6 +417,9 @@ namespace WinMaps.Rendering
             BuildingFill = Color.FromArgb(255, 217, 208, 201),
             BuildingStroke = Color.FromArgb(255, 196, 182, 171),
             BuildingLabelColor = Color.FromArgb(255, 100, 90, 80),
+            PlaceLabelColor = Color.FromArgb(255, 50, 50, 50),
+            PlaceLabelColorLight = Color.FromArgb(255, 140, 140, 140),
+            PlaceLabelHaloColor = Color.FromArgb(200, 255, 255, 255),
             PoiColors = new Dictionary<string, Color>
             {
                 ["amenity"] = Color.FromArgb(255, 180, 60, 60),

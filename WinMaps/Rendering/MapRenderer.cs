@@ -25,6 +25,7 @@ namespace WinMaps.Rendering
         // Cached way geometries for the current viewport
         private List<CachedWay> _cachedWays;
         private List<CachedPoi> _cachedPois;
+        private List<CachedPlace> _cachedPlaces;
         private double _cacheMinLat, _cacheMaxLat, _cacheMinLon, _cacheMaxLon;
         private double _cacheZoom;
         private const double CacheMarginFactor = 0.5;
@@ -68,6 +69,7 @@ namespace WinMaps.Rendering
         {
             _cachedWays = null;
             _cachedPois = null;
+            _cachedPlaces = null;
         }
 
         public void Draw(CanvasDrawingSession ds, ICanvasResourceCreator rc)
@@ -122,6 +124,12 @@ namespace WinMaps.Rendering
             // Building labels on top of roads (zoom >= 17)
             if (_viewport.Zoom >= 17)
                 DrawBuildings(ds, labelsOnly: true);
+
+            // Place labels (cities, towns, villages)
+            if (_cachedPlaces != null && _viewport.Zoom >= 6)
+            {
+                DrawPlaceLabels(ds);
+            }
 
             // POIs on top of everything
             if (_cachedPois != null && _viewport.Zoom >= 17)
@@ -442,8 +450,30 @@ namespace WinMaps.Rendering
                 });
             }
 
+            List<CachedPlace> newCachedPlaces = null;
+            if (queryZoom >= 6)
+            {
+                newCachedPlaces = await Task.Run(() =>
+                {
+                    var places = _db.QueryPlaces(queryMinLat, queryMaxLat, queryMinLon, queryMaxLon, queryZoom);
+                    var result = new List<CachedPlace>(places.Count);
+                    foreach (var (placeType, name, lat, lon) in places)
+                    {
+                        result.Add(new CachedPlace
+                        {
+                            PlaceType = placeType,
+                            Name = name,
+                            Lat = lat,
+                            Lon = lon
+                        });
+                    }
+                    return result;
+                });
+            }
+
             _cachedWays = newCachedWays;
             _cachedPois = newCachedPois;
+            _cachedPlaces = newCachedPlaces;
             _isLoading = false;
 
             // If a reload was requested while we were loading, re-run
@@ -577,6 +607,93 @@ namespace WinMaps.Rendering
             public string Name;
             public double Lat;
             public double Lon;
+        }
+
+        private class CachedPlace
+        {
+            public string PlaceType;
+            public string Name;
+            public double Lat;
+            public double Lon;
+        }
+
+        // ---- Place label rendering ----
+
+        private static int PlaceTypeOrder(string placeType)
+        {
+            switch (placeType)
+            {
+                case "city": return 0;
+                case "town": return 1;
+                case "village": return 2;
+                case "suburb": return 3;
+                case "hamlet": return 4;
+                default: return 5;
+            }
+        }
+
+        private void DrawPlaceLabels(CanvasDrawingSession ds)
+        {
+            if (_cachedPlaces == null || _cachedPlaces.Count == 0) return;
+
+            double zoom = _viewport.Zoom;
+            bool useLight = zoom >= 14;
+            Color textColor = useLight ? _theme.PlaceLabelColorLight : _theme.PlaceLabelColor;
+            Color haloColor = _theme.PlaceLabelHaloColor;
+
+            // Sort by importance so cities win deconfliction over towns, etc.
+            _cachedPlaces.Sort((a, b) => PlaceTypeOrder(a.PlaceType).CompareTo(PlaceTypeOrder(b.PlaceType)));
+
+            // Grid-based label deconfliction
+            int cellSize = 140;
+            int cols = (int)(_viewport.ScreenWidth / cellSize) + 1;
+            int rows = (int)(_viewport.ScreenHeight / cellSize) + 1;
+            var occupied = new bool[cols * rows];
+
+            foreach (var place in _cachedPlaces)
+            {
+                float fontSize;
+                switch (place.PlaceType)
+                {
+                    case "city": fontSize = 16f; break;
+                    case "town": fontSize = 14f; break;
+                    case "village": fontSize = 12f; break;
+                    case "suburb": fontSize = 11f; break;
+                    default: fontSize = 10f; break;
+                }
+
+                var (x, y) = _viewport.GeoToScreen(place.Lat, place.Lon);
+
+                if (x < -60 || x > _viewport.ScreenWidth + 60 ||
+                    y < -30 || y > _viewport.ScreenHeight + 30)
+                    continue;
+
+                // Check deconfliction grid
+                int col = (int)(x / cellSize);
+                int row = (int)(y / cellSize);
+                if (col < 0 || col >= cols || row < 0 || row >= rows) continue;
+                int cellIdx = row * cols + col;
+                if (occupied[cellIdx]) continue;
+                occupied[cellIdx] = true;
+
+                using (var textFormat = new CanvasTextFormat
+                {
+                    FontSize = fontSize,
+                    HorizontalAlignment = CanvasHorizontalAlignment.Center,
+                    VerticalAlignment = CanvasVerticalAlignment.Center,
+                    FontWeight = (place.PlaceType == "city") ?
+                        Windows.UI.Text.FontWeights.SemiBold :
+                        Windows.UI.Text.FontWeights.Normal
+                })
+                {
+                    // Text halo: draw offset copies for readability
+                    ds.DrawText(place.Name, x - 1, y, haloColor, textFormat);
+                    ds.DrawText(place.Name, x + 1, y, haloColor, textFormat);
+                    ds.DrawText(place.Name, x, y - 1, haloColor, textFormat);
+                    ds.DrawText(place.Name, x, y + 1, haloColor, textFormat);
+                    ds.DrawText(place.Name, x, y, textColor, textFormat);
+                }
+            }
         }
 
         // ---- POI rendering ----
