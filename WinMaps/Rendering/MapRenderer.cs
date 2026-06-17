@@ -34,8 +34,8 @@ namespace WinMaps.Rendering
 
         private bool _isLoading;
         private bool _pendingReload;
-        private readonly CanvasStrokeStyle _roundStroke;
-        private readonly CanvasStrokeStyle _dashedStroke;
+        private CanvasStrokeStyle _roundStroke;
+        private CanvasStrokeStyle _dashedStroke;
 
         // Subtypes that should render as dashed lines
         private static readonly HashSet<string> DashedRoadSubTypes = new HashSet<string>
@@ -56,6 +56,15 @@ namespace WinMaps.Rendering
             _db = db;
             _viewport = viewport;
             _theme = theme ?? MapTheme.Light;
+        }
+
+        /// <summary>
+        /// Lazily create stroke styles on first Draw — Win2D COM objects
+        /// can't be created before the CanvasControl is loaded.
+        /// </summary>
+        private void EnsureStrokeStyles()
+        {
+            if (_roundStroke != null) return;
             _roundStroke = new CanvasStrokeStyle
             {
                 LineJoin = CanvasLineJoin.Round,
@@ -82,6 +91,8 @@ namespace WinMaps.Rendering
         public void Draw(CanvasDrawingSession ds, ICanvasResourceCreator rc)
         {
             if (_cachedWays == null || _cachedWays.Count == 0) return;
+
+            EnsureStrokeStyles();
 
             // Compute viewport offset once per frame — converts cached Mercator coords to screen
             _frameOffsetX = (float)(-_viewport.LonToMercatorX(_viewport.CenterLon) + _viewport.ScreenWidth / 2.0);
