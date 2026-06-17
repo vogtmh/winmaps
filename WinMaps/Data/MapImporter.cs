@@ -47,11 +47,12 @@ namespace WinMaps.Data
             long fileSize = new FileInfo(pbfPath).Length;
 
             // ---- Pass 1: Scan ways to collect referenced node IDs ----
-            // Collect raw refs into a List<long>, then sort+dedup into a plain array.
-            // A sorted long[] uses ~8 bytes/entry vs HashSet<long>'s ~22 bytes/entry.
+            // Collect raw refs into a List<long>, sort+dedup periodically to keep
+            // memory bounded on low-RAM devices (Lumia 735 = 1GB).
             ReportProgress(ImportPhase.Nodes, 0, 0, 0);
 
             var nodeIdList = new List<long>();
+            const int CompactThreshold = 2_000_000; // compact every 2M refs
 
             using (var stream = File.OpenRead(pbfPath))
             {
@@ -61,6 +62,16 @@ namespace WinMaps.Data
                 {
                     for (int i = 0; i < way.NodeRefs.Length; i++)
                         nodeIdList.Add(way.NodeRefs[i]);
+
+                    // Periodically sort+dedup to prevent unbounded memory growth.
+                    // A 2M-entry List<long> is ~16MB; after dedup typically ~4-6MB.
+                    if (nodeIdList.Count >= CompactThreshold)
+                    {
+                        nodeIdList.Sort();
+                        var compacted = DeduplicateSortedToList(nodeIdList);
+                        nodeIdList.Clear();
+                        nodeIdList.AddRange(compacted);
+                    }
                 };
 
                 parser.OnProgress += (pos, total) =>
@@ -72,10 +83,13 @@ namespace WinMaps.Data
                 parser.Parse(stream, fileSize, ct);
             }
 
-            // Sort and deduplicate into a compact array — O(n log n) but runs once
+            // Final sort and deduplicate into a compact array
             nodeIdList.Sort();
             long[] nodeIds = DeduplicateSorted(nodeIdList);
-            nodeIdList = null; // allow GC to reclaim the raw list
+            nodeIdList.Clear();
+            nodeIdList.TrimExcess(); // release list's internal array
+            nodeIdList = null;
+            GC.Collect(); // reclaim list memory before allocating coordinate buffers
 
             // Two parallel coordinate arrays indexed by position in nodeIds[].
             // No pointer overhead — GC scans them in O(1).
@@ -250,6 +264,22 @@ namespace WinMaps.Data
             for (int i = 1; i < sorted.Count; i++)
                 if (sorted[i] != sorted[i - 1])
                     result[w++] = sorted[i];
+
+            return result;
+        }
+
+        /// <summary>
+        /// Like DeduplicateSorted but returns a List for use during incremental compaction.
+        /// </summary>
+        private static List<long> DeduplicateSortedToList(List<long> sorted)
+        {
+            if (sorted.Count == 0) return new List<long>();
+
+            var result = new List<long>(sorted.Count / 3);
+            result.Add(sorted[0]);
+            for (int i = 1; i < sorted.Count; i++)
+                if (sorted[i] != sorted[i - 1])
+                    result.Add(sorted[i]);
 
             return result;
         }
