@@ -92,6 +92,7 @@ namespace WinMaps
 
         // Theme
         private MapTheme _currentTheme;
+        private string _lastRenderError;
 
         public MainPage()
         {
