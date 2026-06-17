@@ -2242,21 +2242,28 @@ namespace WinMaps
 
         private async void RedrawMap()
         {
-            // Show stale cached data immediately so the UI never freezes during pans.
-            // Only works when zoom hasn't changed — Mercator coords are zoom-dependent,
-            // so stale data at a different zoom renders at the wrong scale.
-            bool zoomSame = _renderer != null && Math.Abs(_renderer.CacheZoom - _viewport.Zoom) < 0.01;
-            if (zoomSame)
-                MapCanvas.Invalidate();
-            TxtZoom.Text = $"Z{_viewport.Zoom:F0}";
-            TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
-            SaveViewport();
-
-            // Then reload data in the background and repaint when ready
-            if (_renderer != null)
+            try
             {
-                await _renderer.EnsureCacheAsync();
-                MapCanvas.Invalidate();
+                // Show stale cached data immediately so the UI never freezes during pans.
+                // Only works when zoom hasn't changed — Mercator coords are zoom-dependent,
+                // so stale data at a different zoom renders at the wrong scale.
+                bool zoomSame = _renderer != null && Math.Abs(_renderer.CacheZoom - _viewport.Zoom) < 0.01;
+                if (zoomSame)
+                    MapCanvas.Invalidate();
+                TxtZoom.Text = $"Z{_viewport.Zoom:F0}";
+                TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
+                SaveViewport();
+
+                // Then reload data in the background and repaint when ready
+                if (_renderer != null)
+                {
+                    await _renderer.EnsureCacheAsync();
+                    MapCanvas.Invalidate();
+                }
+            }
+            catch (Exception ex)
+            {
+                _lastRenderError = ex.ToString();
             }
         }
 
