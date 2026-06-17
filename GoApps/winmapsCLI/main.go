@@ -574,8 +574,7 @@ func importPbf(pbfPath, dbPath string) error {
 			batchCount = 0
 		}
 
-		for {
-			// Drain whichever channel has data, prioritise neither.
+		for wayCh != nil || poiCh != nil {
 			select {
 			case r, ok := <-wayCh:
 				if !ok {
@@ -591,9 +590,6 @@ func importPbf(pbfPath, dbPath string) error {
 				}
 				poiStmt.Exec(r.id, r.pt, r.ps, nullStr(r.pn), r.lat, r.lon)
 				batchCount++
-			}
-			if wayCh == nil && poiCh == nil {
-				break
 			}
 			if batchCount >= 500_000 {
 				flush()
