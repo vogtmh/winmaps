@@ -382,114 +382,105 @@ namespace WinMaps.Data
         {
             var result = new List<(int, string, List<(double, double)>)>();
 
-            // Build SQL with LOD conditions pushed into WHERE clause
-            // Road=0, Water=1, Park=2
-            // Area size uses (max-min) extent in degrees as a proxy for screen-space size
             // For Z<14, use COALESCE(geometry_simple, geometry) to read the smaller pre-simplified blob
             string geoCol = zoom < 14 ? "COALESCE(geometry_simple, geometry)" : "geometry";
-            string sql;
+
+            // Split into per-type queries so SQLite can use idx_ways_type_bounds efficiently.
+            // Each query filters by type first (index prefix), then bounds, then type-specific conditions.
+
+            // --- Roads (type=0) ---
+            string roadFilter;
             if (zoom < 4)
-            {
-                // Continental view: motorway only + huge areas
-                sql = $@"SELECT type, subtype, {geoCol} FROM ways
-                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
-                          AND max_lon >= @minLon AND min_lon <= @maxLon
-                          AND (
-                            (type = 0 AND subtype IN ('motorway'))
-                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.5)
-                          )";
-            }
+                roadFilter = "subtype IN ('motorway')";
             else if (zoom < 6)
-            {
-                // Country view: motorway/trunk + very large areas
-                sql = $@"SELECT type, subtype, {geoCol} FROM ways
-                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
-                          AND max_lon >= @minLon AND min_lon <= @maxLon
-                          AND (
-                            (type = 0 AND subtype IN ('motorway','trunk'))
-                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.05)
-                          )";
-            }
+                roadFilter = "subtype IN ('motorway','trunk')";
             else if (zoom < 8)
-            {
-                // Regional view: motorway/trunk + large areas
-                sql = $@"SELECT type, subtype, {geoCol} FROM ways
-                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
-                          AND max_lon >= @minLon AND min_lon <= @maxLon
-                          AND (
-                            (type = 0 AND subtype IN ('motorway','trunk','motorway_link','trunk_link'))
-                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.005)
-                          )";
-            }
+                roadFilter = "subtype IN ('motorway','trunk','motorway_link','trunk_link')";
             else if (zoom < 10)
-            {
-                // Add primary roads + large areas + village-scale buildings
-                sql = $@"SELECT type, subtype, {geoCol} FROM ways
-                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
-                          AND max_lon >= @minLon AND min_lon <= @maxLon
-                          AND (
-                            (type = 0 AND subtype IN ('motorway','trunk','primary','motorway_link','trunk_link','primary_link'))
-                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.0002)
-                            OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00005)
-                          )";
-            }
+                roadFilter = "subtype IN ('motorway','trunk','primary','motorway_link','trunk_link','primary_link')";
             else if (zoom < 12)
-            {
-                // Add secondary roads, skip minor paths/tracks/service; medium+ areas + buildings
-                sql = $@"SELECT type, subtype, {geoCol} FROM ways
-                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
-                          AND max_lon >= @minLon AND min_lon <= @maxLon
-                          AND (
-                            (type = 0 AND subtype IN ('motorway','trunk','primary','secondary',
-                                'motorway_link','trunk_link','primary_link','secondary_link'))
-                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00005)
-                            OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00005)
-                          )";
-            }
+                roadFilter = "subtype IN ('motorway','trunk','primary','secondary','motorway_link','trunk_link','primary_link','secondary_link')";
             else if (zoom < 13)
-            {
-                // Add tertiary/residential, track only (no footway/path/cycleway); smaller areas + buildings
-                sql = $@"SELECT type, subtype, {geoCol} FROM ways
-                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
-                          AND max_lon >= @minLon AND min_lon <= @maxLon
-                          AND (
-                            (type = 0 AND subtype NOT IN ('footway','path','cycleway','service'))
-                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00001)
-                            OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.00001)
-                          )";
-            }
+                roadFilter = "subtype NOT IN ('footway','path','cycleway','service')";
             else if (zoom < 14)
-            {
-                // All roads except footway/path/cycleway; small areas + buildings
-                sql = $@"SELECT type, subtype, {geoCol} FROM ways
-                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
-                          AND max_lon >= @minLon AND min_lon <= @maxLon
-                          AND (
-                            (type = 0 AND subtype NOT IN ('footway','path','cycleway'))
-                            OR ((type = 1 OR type = 2) AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.000001)
-                            OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.000001)
-                          )";
-            }
+                roadFilter = "subtype NOT IN ('footway','path','cycleway')";
             else if (zoom < 16)
-            {
-                // Z14-15: skip tiny buildings and very small areas, exclude service roads
-                sql = $@"SELECT type, subtype, {geoCol} FROM ways
-                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
-                          AND max_lon >= @minLon AND min_lon <= @maxLon
-                          AND (
-                            (type = 0 AND subtype NOT IN ('service'))
-                            OR (type = 1 OR type = 2)
-                            OR (type = 3 AND (max_lat - min_lat) * (max_lon - min_lon) >= 0.0000001)
-                          )";
-            }
+                roadFilter = "subtype NOT IN ('service')";
             else
+                roadFilter = null; // all roads
+
             {
-                // Z16+: Show everything
-                sql = @"SELECT type, subtype, geometry FROM ways
-                        WHERE max_lat >= @minLat AND min_lat <= @maxLat
-                          AND max_lon >= @minLon AND min_lon <= @maxLon";
+                string sql;
+                if (roadFilter != null)
+                    sql = $@"SELECT type, subtype, {geoCol} FROM ways
+                            WHERE type = 0 AND min_lat <= @maxLat AND max_lat >= @minLat
+                              AND min_lon <= @maxLon AND max_lon >= @minLon AND {roadFilter}";
+                else
+                    sql = $@"SELECT type, subtype, {(zoom >= 16 ? "geometry" : geoCol)} FROM ways
+                            WHERE type = 0 AND min_lat <= @maxLat AND max_lat >= @minLat
+                              AND min_lon <= @maxLon AND max_lon >= @minLon";
+
+                QueryWaysAppend(sql, minLat, maxLat, minLon, maxLon, result);
             }
 
+            // --- Water (type=1) + Parks (type=2) ---
+            double areaThreshold;
+            if (zoom < 4) areaThreshold = 0.5;
+            else if (zoom < 6) areaThreshold = 0.05;
+            else if (zoom < 8) areaThreshold = 0.005;
+            else if (zoom < 10) areaThreshold = 0.0002;
+            else if (zoom < 12) areaThreshold = 0.00005;
+            else if (zoom < 13) areaThreshold = 0.00001;
+            else if (zoom < 14) areaThreshold = 0.000001;
+            else areaThreshold = 0; // all
+
+            for (int areaType = 1; areaType <= 2; areaType++)
+            {
+                string sql;
+                if (areaThreshold > 0)
+                    sql = $@"SELECT type, subtype, {geoCol} FROM ways
+                            WHERE type = {areaType} AND min_lat <= @maxLat AND max_lat >= @minLat
+                              AND min_lon <= @maxLon AND max_lon >= @minLon
+                              AND (max_lat - min_lat) * (max_lon - min_lon) >= {areaThreshold:G}";
+                else
+                    sql = $@"SELECT type, subtype, {(zoom >= 16 ? "geometry" : geoCol)} FROM ways
+                            WHERE type = {areaType} AND min_lat <= @maxLat AND max_lat >= @minLat
+                              AND min_lon <= @maxLon AND max_lon >= @minLon";
+
+                QueryWaysAppend(sql, minLat, maxLat, minLon, maxLon, result);
+            }
+
+            // --- Buildings (type=3) --- only at Z>=10
+            if (zoom >= 10)
+            {
+                double bldgThreshold;
+                if (zoom < 10) bldgThreshold = 0.00005;
+                else if (zoom < 12) bldgThreshold = 0.00005;
+                else if (zoom < 13) bldgThreshold = 0.00001;
+                else if (zoom < 14) bldgThreshold = 0.000001;
+                else if (zoom < 16) bldgThreshold = 0.0000001;
+                else bldgThreshold = 0;
+
+                string sql;
+                if (bldgThreshold > 0)
+                    sql = $@"SELECT type, subtype, {geoCol} FROM ways
+                            WHERE type = 3 AND min_lat <= @maxLat AND max_lat >= @minLat
+                              AND min_lon <= @maxLon AND max_lon >= @minLon
+                              AND (max_lat - min_lat) * (max_lon - min_lon) >= {bldgThreshold:G}";
+                else
+                    sql = $@"SELECT type, subtype, geometry FROM ways
+                            WHERE type = 3 AND min_lat <= @maxLat AND max_lat >= @minLat
+                              AND min_lon <= @maxLon AND max_lon >= @minLon";
+
+                QueryWaysAppend(sql, minLat, maxLat, minLon, maxLon, result);
+            }
+
+            return result;
+        }
+
+        private void QueryWaysAppend(string sql, double minLat, double maxLat, double minLon, double maxLon,
+            List<(int, string, List<(double, double)>)> result)
+        {
             using (var cmd = _connection.CreateCommand())
             {
                 cmd.CommandText = sql;
@@ -512,8 +503,6 @@ namespace WinMaps.Data
                     }
                 }
             }
-
-            return result;
         }
 
         /// <summary>

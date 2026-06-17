@@ -373,8 +373,10 @@ namespace WinMaps.Rendering
 
             double latSpan = bounds.maxLat - bounds.minLat;
             double lonSpan = bounds.maxLon - bounds.minLon;
-            double latMargin = latSpan * CacheMarginFactor;
-            double lonMargin = lonSpan * CacheMarginFactor;
+            // At low zoom the viewport is huge — reduce margin to avoid querying 4x the area
+            double margin = _viewport.Zoom < 12 ? 0.15 : CacheMarginFactor;
+            double latMargin = latSpan * margin;
+            double lonMargin = lonSpan * margin;
 
             _cacheMinLat = bounds.minLat - latMargin;
             _cacheMaxLat = bounds.maxLat + latMargin;
