@@ -11,6 +11,9 @@ namespace WinMaps.Data
         private SqliteConnection _connection;
         private readonly string _dbPath;
 
+        /// <summary>The file path this database was opened from.</summary>
+        public string DbPath => _dbPath;
+
         // Prepared statement for import
         private SqliteCommand _insertWayCmd;
         private SqliteCommand _insertPoiCmd;
@@ -149,6 +152,17 @@ namespace WinMaps.Data
                 }
             }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// Checkpoints the WAL and truncates it to zero length.
+        /// Call after large write operations (e.g. spatial index creation) so the
+        /// next startup doesn't have to replay a multi-hundred-MB WAL file.
+        /// </summary>
+        public void Checkpoint()
+        {
+            try { Execute("PRAGMA wal_checkpoint(TRUNCATE)"); }
+            catch { }
         }
 
         public void CreateSpatialIndex()

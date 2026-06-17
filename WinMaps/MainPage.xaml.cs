@@ -100,7 +100,7 @@ namespace WinMaps
 
             this.Loaded += MainPage_Loaded;
             this.Unloaded += MainPage_Unloaded;
-            Application.Current.Suspending += (s, args) => SaveViewport();
+            Application.Current.Suspending += OnAppSuspending;
             Application.Current.Resuming += OnAppResuming;
 
             RestoreViewport();
@@ -161,6 +161,17 @@ namespace WinMaps
             }
         }
 
+        private void OnAppSuspending(object sender, Windows.ApplicationModel.SuspendingEventArgs e)
+        {
+            // Checkpoint the WAL so that if the OS terminates the suspended process,
+            // the next startup doesn't have to replay a large WAL file.
+            SaveViewport();
+            var deferral = e.SuspendingOperation.GetDeferral();
+            try { _db?.Checkpoint(); }
+            catch { }
+            finally { deferral.Complete(); }
+        }
+
         private void OnAppResuming(object sender, object e)
         {
             // Re-initialize GPS after suspend — the geolocator stops delivering updates
@@ -174,6 +185,7 @@ namespace WinMaps
 
         private void MainPage_Unloaded(object sender, RoutedEventArgs e)
         {
+            Application.Current.Suspending -= OnAppSuspending;
             Application.Current.Resuming -= OnAppResuming;
             Windows.UI.Core.SystemNavigationManager.GetForCurrentView().BackRequested -= OnBackRequested;
             SaveViewport();
@@ -1800,9 +1812,14 @@ namespace WinMaps
 
             string dbPath = await _downloadManager.GetDatabasePath(region);
 
-            // Open or reuse the DB (all regions in same country share the same file)
-            if (_db == null)
+            // Open the correct country DB.
+            // If a different DB is currently open (e.g. the previously-active map), close it
+            // first so we don't accidentally import into the wrong file.
+            if (_db == null || _db.DbPath != dbPath)
             {
+                _renderer = null;    // prevent rendering with a DB that's about to be closed
+                _db?.Dispose();
+                _db = null;
                 _db = new MapDatabase(dbPath);
                 await _db.OpenAsync();
             }

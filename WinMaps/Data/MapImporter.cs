@@ -200,6 +200,11 @@ namespace WinMaps.Data
             // Record this region as successfully imported into the country DB
             db.InsertRegion(regionId, regionName);
 
+            // Checkpoint the WAL back into the main DB file and truncate it.
+            // CreateSpatialIndex() can leave a very large WAL that makes the next
+            // startup slow (or OOM on constrained devices) if not flushed here.
+            db.Checkpoint();
+
             ReportProgress(ImportPhase.Done, 100, nodeCount, wayCount);
         }
 
