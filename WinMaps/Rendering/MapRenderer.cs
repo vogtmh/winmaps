@@ -124,7 +124,7 @@ namespace WinMaps.Rendering
                 DrawBuildings(ds, labelsOnly: true);
 
             // POIs on top of everything
-            if (_cachedPois != null && _viewport.Zoom >= 15)
+            if (_cachedPois != null && _viewport.Zoom >= 17)
             {
                 DrawPois(ds);
             }
@@ -421,7 +421,7 @@ namespace WinMaps.Rendering
             });
 
             List<CachedPoi> newCachedPois = null;
-            if (queryZoom >= 15)
+            if (queryZoom >= 17)
             {
                 newCachedPois = await Task.Run(() =>
                 {
@@ -588,7 +588,20 @@ namespace WinMaps.Rendering
                 "information", "post_box", "recycling", "bench", "telephone",
                 "vending_machine", "waste_basket", "bicycle_parking", "waste_disposal",
                 "letter_box", "drinking_water", "fire_hydrant", "bollard",
-                "surveillance", "street_lamp", "clock", "manhole"
+                "surveillance", "street_lamp", "clock", "manhole",
+                "compressed_air", "charging_station", "atm",
+                "parking_space", "parking_entrance", "motorcycle_parking",
+                "toilets", "shelter", "hunting_stand",
+                "give_box", "photo_booth", "bbq",
+                "artwork", "vacant"
+            };
+
+        // POI subtypes that are always skipped (noise even with a name)
+        private static readonly System.Collections.Generic.HashSet<string> _alwaysSkipPoiSubTypes =
+            new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "parking_entrance", "parking_space", "compressed_air",
+                "motorcycle_parking", "vacant"
             };
 
         private void DrawPois(CanvasDrawingSession ds)
@@ -599,7 +612,7 @@ namespace WinMaps.Rendering
             float dotRadius = _viewport.Zoom >= 17 ? 4f : 3f;
 
             // Grid-based label deconfliction: divide screen into cells
-            int cellSize = 80; // pixels per cell
+            int cellSize = 120; // pixels per cell
             int cols = (int)(_viewport.ScreenWidth / cellSize) + 1;
             int rows = (int)(_viewport.ScreenHeight / cellSize) + 1;
             var occupied = new bool[cols * rows];
@@ -613,6 +626,10 @@ namespace WinMaps.Rendering
             {
                 foreach (var poi in _cachedPois)
                 {
+                    // Skip POIs that are always noise
+                    if (_alwaysSkipPoiSubTypes.Contains(poi.SubType))
+                        continue;
+
                     // Skip POIs with no real name if their subtype is generic/uninformative
                     bool hasName = !string.IsNullOrEmpty(poi.Name);
                     if (!hasName && _genericPoiSubTypes.Contains(poi.SubType))

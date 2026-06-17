@@ -298,6 +298,11 @@ var genericPoiSubTypes = map[string]bool{
 	"bicycle_parking": true, "waste_disposal": true, "letter_box": true,
 	"drinking_water": true, "fire_hydrant": true, "bollard": true,
 	"surveillance": true, "street_lamp": true, "clock": true, "manhole": true,
+	"compressed_air": true, "charging_station": true, "atm": true,
+	"parking_space": true, "parking_entrance": true, "motorcycle_parking": true,
+	"toilets": true, "shelter": true, "hunting_stand": true,
+	"give_box": true, "photo_booth": true, "bbq": true,
+	"artwork": true, "vacant": true,
 }
 
 func classifyPoi(tags map[string]string) (poiType, poiSubType, name string, ok bool) {
@@ -311,8 +316,8 @@ func classifyPoi(tags map[string]string) (poiType, poiSubType, name string, ok b
 		}
 	}
 	if poiType != "" {
-		// Skip generic subtypes that have no real name
-		if name == "" && genericPoiSubTypes[poiSubType] {
+		// Skip all unnamed POIs — they are noise without a label
+		if name == "" {
 			return "", "", "", false
 		}
 		return poiType, poiSubType, name, true
