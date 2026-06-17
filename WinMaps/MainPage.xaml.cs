@@ -238,11 +238,15 @@ namespace WinMaps
                     _db = new MapDatabase(dbPath);
                     try
                     {
+                        Log("Opening DB...");
                         await _db.OpenAsync();
+                        Log("Checking integrity...");
                         if (!_db.CheckIntegrity())
                             throw new InvalidOperationException("Integrity check failed.");
+                        Log("Checking data...");
                         if (_db.HasData())
                         {
+                            Log("Creating renderer...");
                             _renderer = new MapRenderer(_db, _viewport, _currentTheme);
 
                             var bounds = _db.GetBounds();
@@ -252,14 +256,17 @@ namespace WinMaps
                                 _viewport.CenterLon = (bounds.Value.minLon + bounds.Value.maxLon) / 2.0;
                             }
 
+                            Log("Showing map...");
                             OverlayPanel.Visibility = Visibility.Collapsed;
                             StartGps();
                             RedrawMap();
+                            Log("Startup complete.");
                             return;
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        Log($"DB error: {ex}");
                         _db?.Dispose();
                         _db = null;
                         // DB is corrupt or unreadable — remove it so startup doesn't crash next time
@@ -2236,6 +2243,7 @@ namespace WinMaps
                 catch (Exception ex)
                 {
                     _lastRenderError = ex.ToString();
+                    Log($"Draw error: {ex}");
                 }
             }
         }
@@ -2264,6 +2272,7 @@ namespace WinMaps
             catch (Exception ex)
             {
                 _lastRenderError = ex.ToString();
+                Log($"RedrawMap error: {ex}");
             }
         }
 
@@ -2526,6 +2535,19 @@ namespace WinMaps
         private bool HasSavedViewport()
         {
             return ApplicationData.Current.LocalSettings.Values.ContainsKey("viewport_lat");
+        }
+
+        private static void Log(string message)
+        {
+            try
+            {
+                string path = System.IO.Path.Combine(
+                    ApplicationData.Current.LocalFolder.Path,
+                    "startup.log");
+                System.IO.File.AppendAllText(path,
+                    $"{DateTime.Now:HH:mm:ss.fff} {message}\r\n");
+            }
+            catch { }
         }
     }
 }

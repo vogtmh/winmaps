@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
 using Windows.UI.Popups;
@@ -17,6 +18,13 @@ namespace WinMaps
             this.InitializeComponent();
             this.Suspending += OnSuspending;
             this.UnhandledException += OnUnhandledException;
+
+            // Catch background thread exceptions that bypass UnhandledException
+            TaskScheduler.UnobservedTaskException += (s, args) =>
+            {
+                LogStartup($"UNOBSERVED TASK EXCEPTION: {args.Exception}");
+                args.SetObserved();
+            };
 
             try
             {
