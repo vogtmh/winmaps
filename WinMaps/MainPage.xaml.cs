@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Graphics.Canvas.UI.Xaml;
@@ -1656,7 +1657,7 @@ namespace WinMaps
             }
             catch (Exception ex)
             {
-                TxtOverlayStatus.Text = $"Error: {ex.Message}";
+                TxtOverlayStatus.Text = GetDownloadErrorMessage(ex);
                 TxtOverlayDetail.Text = "";
                 BtnDownload.Content = "Retry";
                 BtnDownload.Visibility = Visibility.Visible;
@@ -1725,7 +1726,7 @@ namespace WinMaps
             }
             catch (Exception ex)
             {
-                TxtOverlayStatus.Text = $"Error on region {done + 1} of {total}: {ex.Message}";
+                TxtOverlayStatus.Text = $"Error on region {done + 1} of {total}: {GetDownloadErrorMessage(ex)}";
                 TxtOverlayDetail.Text = "";
                 BtnDownload.Visibility = Visibility.Collapsed; // no retry for batch
             }
@@ -1892,6 +1893,36 @@ namespace WinMaps
                 }
                 catch { }
             });
+        }
+
+        private static string GetDownloadErrorMessage(Exception ex)
+        {
+            if (ex is OperationCanceledException)
+                return "Download cancelled.";
+
+            if (ex is HttpRequestException httpEx)
+            {
+                if (httpEx.StatusCode.HasValue)
+                {
+                    int code = (int)httpEx.StatusCode.Value;
+                    switch (code)
+                    {
+                        case 403: return "Download blocked (403 Forbidden). The server refused the request.";
+                        case 404: return "File not found on server (404). The map may have moved or been renamed.";
+                        case 429: return "Too many requests (429). Please wait a moment and retry.";
+                        case 503: return "Server unavailable (503). Please try again later.";
+                        default:  return $"Download failed (HTTP {code}). Please check your connection and retry.";
+                    }
+                }
+                // No status code — likely a connectivity issue
+                return "Download failed. Please check your internet connection and retry.";
+            }
+
+            // IO / storage errors
+            if (ex is IOException)
+                return $"Storage error: {ex.Message}";
+
+            return $"Download failed: {ex.Message}";
         }
 
         private async void OnDownloadProgress(DownloadProgress p)
