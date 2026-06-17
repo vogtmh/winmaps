@@ -97,8 +97,9 @@ namespace WinMaps.Data
 
             // Two parallel coordinate arrays indexed by position in nodeIds[].
             // No pointer overhead — GC scans them in O(1).
-            double[] latBuf = new double[nodeIds.Length];
-            double[] lonBuf = new double[nodeIds.Length];
+            // Using float (not double) to halve memory: ~0.5m precision is fine for rendering.
+            float[] latBuf = new float[nodeIds.Length];
+            float[] lonBuf = new float[nodeIds.Length];
 
             // ---- Pass 2: Fill coordinate arrays, resolve ways inline ----
             long nodeCount = 0;
@@ -121,8 +122,8 @@ namespace WinMaps.Data
                         int idx = Array.BinarySearch(nodeIds, node.Id);
                         if (idx >= 0)
                         {
-                            latBuf[idx] = node.Lat;
-                            lonBuf[idx] = node.Lon;
+                            latBuf[idx] = (float)node.Lat;
+                            lonBuf[idx] = (float)node.Lon;
                         }
                         nodeCount++;
                     };
