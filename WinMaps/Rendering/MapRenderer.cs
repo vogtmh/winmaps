@@ -28,6 +28,7 @@ namespace WinMaps.Rendering
         private List<CachedPlace> _cachedPlaces;
         private double _cacheMinLat, _cacheMaxLat, _cacheMinLon, _cacheMaxLon;
         private double _cacheZoom;
+        public double CacheZoom => _cacheZoom;
         private const double CacheMarginFactor = 0.5;
 
         private bool _isLoading;

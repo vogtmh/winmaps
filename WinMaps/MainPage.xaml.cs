@@ -2227,10 +2227,12 @@ namespace WinMaps
 
         private async void RedrawMap()
         {
-            // Show stale cached data immediately so the UI never freezes.
-            // The old geometry is at the wrong zoom/position but the Mercator
-            // offset math auto-adjusts, giving instant visual feedback.
-            MapCanvas.Invalidate();
+            // Show stale cached data immediately so the UI never freezes during pans.
+            // Only works when zoom hasn't changed — Mercator coords are zoom-dependent,
+            // so stale data at a different zoom renders at the wrong scale.
+            bool zoomSame = _renderer != null && Math.Abs(_renderer.CacheZoom - _viewport.Zoom) < 0.01;
+            if (zoomSame)
+                MapCanvas.Invalidate();
             TxtZoom.Text = $"Z{_viewport.Zoom:F0}";
             TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
             SaveViewport();
