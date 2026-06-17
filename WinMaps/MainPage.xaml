@@ -513,6 +513,10 @@
 
                     <TextBlock x:Name="TxtAppVersion" Text="WinMaps"
                                FontSize="15" Opacity="0.8" />
+                    <TextBlock x:Name="TxtBuildDate" Text=""
+                               FontSize="12" Opacity="0.5" Margin="0,2,0,0" />
+                    <TextBlock Text="Developed by Mavodev"
+                               FontSize="12" Opacity="0.6" Margin="0,6,0,0" />
                     <TextBlock Text="Map data © OpenStreetMap contributors"
                                FontSize="12" Opacity="0.5" Margin="0,4,0,0"
                                TextWrapping="Wrap" />

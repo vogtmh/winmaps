@@ -246,4 +246,14 @@
     <VisualStudioVersion>14.0</VisualStudioVersion>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\WindowsXaml\v$(VisualStudioVersion)\Microsoft.Windows.UI.Xaml.CSharp.targets" />
+
+  <!-- Embed build date as a compile-time constant -->
+  <Target Name="GenerateBuildInfo" BeforeTargets="CoreCompile">
+    <WriteLinesToFile File="$(IntermediateOutputPath)BuildInfo.cs" Overwrite="true"
+      Lines="namespace WinMaps { internal static class BuildInfo { public const string Date = &quot;$([System.DateTime]::UtcNow.ToString('d. MMM yyyy'))&quot;; } }" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)BuildInfo.cs" />
+    </ItemGroup>
+  </Target>
+
 </Project>

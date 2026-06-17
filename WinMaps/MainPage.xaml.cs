@@ -1722,6 +1722,13 @@ namespace WinMaps
                     OverlayPanel.Visibility = Visibility.Collapsed;
                 }
             }
+            catch (Download.DownloadStalledException)
+            {
+                TxtOverlayStatus.Text = "Download stalled — no data received for 10 seconds.";
+                TxtOverlayDetail.Text = "The partial download is kept. Tap Retry to resume.";
+                BtnDownload.Content = "Retry";
+                BtnDownload.Visibility = Visibility.Visible;
+            }
             catch (Exception ex)
             {
                 TxtOverlayStatus.Text = GetDownloadErrorMessage(ex);
@@ -1790,6 +1797,12 @@ namespace WinMaps
                     else
                         OverlayPanel.Visibility = Visibility.Collapsed;
                 }
+            }
+            catch (Download.DownloadStalledException)
+            {
+                TxtOverlayStatus.Text = $"Stalled on region {done + 1} of {total} — no data for 10 s.";
+                TxtOverlayDetail.Text = "The partial download is kept. You can retry manually.";
+                BtnDownload.Visibility = Visibility.Collapsed;
             }
             catch (Exception ex)
             {
@@ -2034,6 +2047,7 @@ namespace WinMaps
             // App version from package identity
             var ver = Windows.ApplicationModel.Package.Current.Id.Version;
             TxtAppVersion.Text = $"WinMaps {ver.Major}.{ver.Minor}.{ver.Build}.{ver.Revision}";
+            TxtBuildDate.Text = $"Built {BuildInfo.Date}";
 
             RefreshTempSizes();
         }

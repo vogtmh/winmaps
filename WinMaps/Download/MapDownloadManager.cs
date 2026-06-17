@@ -17,6 +17,12 @@ namespace WinMaps.Download
         }
     }
 
+    internal class DownloadStalledException : Exception
+    {
+        public DownloadStalledException()
+            : base("Download stalled — no data received for 10 seconds.") { }
+    }
+
     internal class DownloadProgress
     {
         public long BytesReceived;
@@ -116,8 +122,25 @@ namespace WinMaps.Download
                         long bytesReceived = existingSize;
                         int read;
 
-                        while ((read = await responseStream.ReadAsync(buffer, 0, buffer.Length, ct)) > 0)
+                        while (true)
                         {
+                            // Per-read stall timeout: cancel if no bytes arrive within 10 s
+                            using (var stallCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                            {
+                                stallCts.CancelAfter(TimeSpan.FromSeconds(10));
+                                try
+                                {
+                                    read = await responseStream.ReadAsync(buffer, 0, buffer.Length, stallCts.Token);
+                                }
+                                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                                {
+                                    // User did NOT cancel — the stall timer fired
+                                    throw new DownloadStalledException();
+                                }
+                            }
+
+                            if (read == 0) break;
+
                             ct.ThrowIfCancellationRequested();
                             await fileStream.WriteAsync(buffer, 0, read, ct);
                             bytesReceived += read;
