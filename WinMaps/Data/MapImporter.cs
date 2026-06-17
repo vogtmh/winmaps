@@ -52,7 +52,8 @@ namespace WinMaps.Data
             ReportProgress(ImportPhase.Nodes, 0, 0, 0);
 
             var nodeIdList = new List<long>();
-            const int CompactThreshold = 2_000_000; // compact every 2M refs
+            const int CompactThreshold = 2_000_000; // compact every 2M new refs
+            int newSinceCompact = 0;
 
             using (var stream = File.OpenRead(pbfPath))
             {
@@ -63,14 +64,17 @@ namespace WinMaps.Data
                     for (int i = 0; i < way.NodeRefs.Length; i++)
                         nodeIdList.Add(way.NodeRefs[i]);
 
+                    newSinceCompact += way.NodeRefs.Length;
+
                     // Periodically sort+dedup to prevent unbounded memory growth.
-                    // A 2M-entry List<long> is ~16MB; after dedup typically ~4-6MB.
-                    if (nodeIdList.Count >= CompactThreshold)
+                    // Only trigger when enough NEW refs accumulated since last compaction.
+                    if (newSinceCompact >= CompactThreshold)
                     {
                         nodeIdList.Sort();
                         var compacted = DeduplicateSortedToList(nodeIdList);
                         nodeIdList.Clear();
                         nodeIdList.AddRange(compacted);
+                        newSinceCompact = 0;
                     }
                 };
 
