@@ -188,8 +188,39 @@ namespace WinMaps.Download
         }
 
         /// <summary>
-        /// Returns the smallest (by bounding-box area) leaf region whose bbox contains the point,
-        /// or null if none found. Requires bboxes to be loaded via GeofabrikGeoIndex first.
+        /// Loads bounding boxes from the bundled asset file (Assets/geofabrik-bboxes.json)
+        /// and patches them onto the already-loaded regions. ~26KB, instant.
+        /// </summary>
+        public async Task LoadBboxesAsync()
+        {
+            if (_regions == null) return;
+            try
+            {
+                var uri = new Uri("ms-appx:///Assets/geofabrik-bboxes.json");
+                var file = await StorageFile.GetFileFromApplicationUriAsync(uri);
+                string json = await FileIO.ReadTextAsync(file);
+                var root = JsonObject.Parse(json);
+                foreach (var kvp in root)
+                {
+                    string id = kvp.Key;
+                    if (!_regions.TryGetValue(id, out var region)) continue;
+                    var arr = kvp.Value.GetArray();
+                    if (arr.Count >= 4)
+                    {
+                        region.BboxMinLon = arr.GetNumberAt(0);
+                        region.BboxMinLat = arr.GetNumberAt(1);
+                        region.BboxMaxLon = arr.GetNumberAt(2);
+                        region.BboxMaxLat = arr.GetNumberAt(3);
+                        region.HasBbox = true;
+                    }
+                }
+            }
+            catch { /* asset missing or malformed — skip */ }
+        }
+
+        /// <summary>
+        /// Returns the smallest (by bounding-box area) region whose bbox contains the point,
+        /// or null if none found. Requires LoadBboxesAsync() to have been called.
         /// </summary>
         public GeofabrikRegion FindSmallestContaining(double lat, double lon)
         {

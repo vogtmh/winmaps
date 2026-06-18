@@ -1657,11 +1657,8 @@ namespace WinMaps
             // "Near me" suggestion at root level when GPS is available
             if (parentId == null && !double.IsNaN(_gpsLat) && !double.IsNaN(_gpsLon))
             {
-                // Bboxes come from the full geo index (index-v1.json); load it if not cached yet
-                if (!_geoIndex.IsLoaded)
-                {
-                    try { await _geoIndex.LoadAsync(_geofabrikIndex); } catch { }
-                }
+                // Load lightweight bboxes from bundled asset (~26KB) if not loaded yet
+                await _geofabrikIndex.LoadBboxesAsync();
 
                 var nearest = _geofabrikIndex.FindSmallestContaining(_gpsLat, _gpsLon);
                 if (nearest != null)
