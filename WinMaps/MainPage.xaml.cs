@@ -1743,25 +1743,22 @@ namespace WinMaps
                 catch { /* DB unreadable — will be handled during import */ }
             }
 
-            // New DB — let user choose
+            // New DB — let user choose (max 3 commands on UWP MessageDialog)
             var dialog = new MessageDialog(
                 "Original — full detail, largest DB\n" +
-                "High — no footpaths, smaller DB\n" +
-                "Medium — major roads + large areas, much smaller\n" +
+                "Medium — major roads + large areas, smaller\n" +
                 "Low — main roads only, smallest DB",
                 "Map Quality");
             dialog.Commands.Add(new UICommand("Original"));
-            dialog.Commands.Add(new UICommand("High"));
             dialog.Commands.Add(new UICommand("Medium"));
             dialog.Commands.Add(new UICommand("Low"));
             dialog.DefaultCommandIndex = 0;
-            dialog.CancelCommandIndex = 3;
+            dialog.CancelCommandIndex = 2;
 
             var result = await dialog.ShowAsync();
             switch (result.Label)
             {
                 case "Original": _importQuality = MapQuality.Original; break;
-                case "High": _importQuality = MapQuality.High; break;
                 case "Medium": _importQuality = MapQuality.Medium; break;
                 case "Low": _importQuality = MapQuality.Low; break;
                 default: return false;
