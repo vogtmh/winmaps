@@ -1705,8 +1705,8 @@ namespace WinMaps
 
             LvBrowse.ItemsSource = items;
 
-            // Show Download All only when viewing a non-root parent with leaf items
-            BtnDownloadAll.Visibility = (parentId != null && !anyHasChildren)
+            // Show Download All for countries and sub-regions, not continents or root
+            BtnDownloadAll.Visibility = (parentId != null && !_geofabrikIndex.IsContinent(parentId))
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         }
