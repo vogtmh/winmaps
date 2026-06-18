@@ -249,8 +249,8 @@ var excludeMedium = map[string]bool{
 	"service": true, "track": true, "steps": true, "pedestrian": true,
 }
 var keepLow = map[string]bool{
-	"motorway": true, "trunk": true, "primary": true, "secondary": true,
-	"motorway_link": true, "trunk_link": true, "primary_link": true, "secondary_link": true,
+	"motorway": true, "trunk": true, "primary": true, "secondary": true, "tertiary": true,
+	"motorway_link": true, "trunk_link": true, "primary_link": true, "secondary_link": true, "tertiary_link": true,
 }
 
 // shouldSkipWay returns true if the way should be excluded based on quality.
@@ -944,8 +944,10 @@ func main() {
 		quality = QualityMedium
 	case "low":
 		quality = QualityLow
-	case "", "original":
+	case "original":
 		quality = QualityOriginal
+	case "":
+		// Will ask interactively after region selection
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown quality: %s (use original/high/medium/low)\n", qualityFlag)
 		os.Exit(1)
@@ -953,8 +955,6 @@ func main() {
 
 	fmt.Println("=== WinMaps DB Prebuild Tool ===")
 	fmt.Printf("Runtime: %d CPUs, GOMAXPROCS=%d\n", runtime.NumCPU(), runtime.GOMAXPROCS(0))
-	qualityNames := []string{"original", "high", "medium", "low"}
-	fmt.Printf("Quality: %s\n", qualityNames[quality])
 	fmt.Println()
 
 	regions, err := fetchIndex()
@@ -970,7 +970,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Ask quality interactively if not passed via flag
+	if qualityFlag == "" {
+		fmt.Println("\nSelect map quality:")
+		fmt.Println("  1) Original — full detail, largest DB")
+		fmt.Println("  2) High     — no footpaths")
+		fmt.Println("  3) Medium   — major roads + large areas")
+		fmt.Println("  4) Low      — main roads only, smallest DB")
+		fmt.Print("Choice [1-4]: ")
+		var qChoice int
+		if _, err := fmt.Scan(&qChoice); err != nil || qChoice < 1 || qChoice > 4 {
+			fmt.Fprintln(os.Stderr, "Invalid choice, using Original")
+			quality = QualityOriginal
+		} else {
+			quality = qChoice - 1
+		}
+	}
+
+	qualityNames := []string{"original", "high", "medium", "low"}
 	fmt.Printf("\nSelected: %s\n", selected.Name)
+	fmt.Printf("Quality:  %s\n", qualityNames[quality])
 	fmt.Printf("PBF URL:  %s\n", selected.PbfURL)
 
 	// Output paths

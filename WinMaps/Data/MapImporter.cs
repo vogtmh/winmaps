@@ -314,7 +314,8 @@ namespace WinMaps.Data
         private static readonly HashSet<string> ExcludeMedium = new HashSet<string>
             { "footway", "path", "cycleway", "service", "track", "steps", "pedestrian" };
         private static readonly HashSet<string> KeepLow = new HashSet<string>
-            { "motorway", "trunk", "primary", "secondary", "motorway_link", "trunk_link", "primary_link", "secondary_link" };
+            { "motorway", "trunk", "primary", "secondary", "tertiary",
+              "motorway_link", "trunk_link", "primary_link", "secondary_link", "tertiary_link" };
 
         /// <summary>
         /// Returns true if the way should be skipped based on quality setting.
