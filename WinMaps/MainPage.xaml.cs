@@ -645,8 +645,15 @@ namespace WinMaps
 
         // ---- My Maps ----
 
-        private void RefreshMyMapsList()
+        private async void RefreshMyMapsList()
         {
+            // Ensure index is loaded for parent-child grouping
+            if (_geofabrikIndex != null && !_geofabrikIndex.IsLoaded)
+            {
+                try { await _geofabrikIndex.LoadAsync(); }
+                catch { }
+            }
+
             var names = GetMapNames();           // country key → country display name
             var installedIds = GetInstalledRegionIds();
             var items = new List<DownloadedMapItem>();
@@ -2704,6 +2711,13 @@ namespace WinMaps
             var items = LvMyMaps.ItemsSource as List<DownloadedMapItem>;
             var item = items?.FirstOrDefault(i => i.Id == mapId);
             if (item == null || item.RegionIds == null || item.RegionIds.Count == 0) return;
+
+            // Ensure Geofabrik index is loaded for parent-child grouping
+            if (_geofabrikIndex != null && !_geofabrikIndex.IsLoaded)
+            {
+                try { await _geofabrikIndex.LoadAsync(); }
+                catch { }
+            }
 
             // Build grouped region list using Geofabrik hierarchy
             var contentPanel = new StackPanel();
