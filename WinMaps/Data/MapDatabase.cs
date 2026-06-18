@@ -441,7 +441,7 @@ namespace WinMaps.Data
                     sql = $@"SELECT type, subtype, {geoCol} FROM ways
                             WHERE type = {areaType} AND min_lat <= @maxLat AND max_lat >= @minLat
                               AND min_lon <= @maxLon AND max_lon >= @minLon
-                              AND (max_lat - min_lat) * (max_lon - min_lon) >= {areaThreshold:G}";
+                              AND (max_lat - min_lat) * (max_lon - min_lon) >= {areaThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
                 else
                     sql = $@"SELECT type, subtype, {(zoom >= 16 ? "geometry" : geoCol)} FROM ways
                             WHERE type = {areaType} AND min_lat <= @maxLat AND max_lat >= @minLat
@@ -466,7 +466,7 @@ namespace WinMaps.Data
                     sql = $@"SELECT type, subtype, {geoCol} FROM ways
                             WHERE type = 3 AND min_lat <= @maxLat AND max_lat >= @minLat
                               AND min_lon <= @maxLon AND max_lon >= @minLon
-                              AND (max_lat - min_lat) * (max_lon - min_lon) >= {bldgThreshold:G}";
+                              AND (max_lat - min_lat) * (max_lon - min_lon) >= {bldgThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
                 else
                     sql = $@"SELECT type, subtype, geometry FROM ways
                             WHERE type = 3 AND min_lat <= @maxLat AND max_lat >= @minLat
