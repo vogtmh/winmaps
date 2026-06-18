@@ -363,7 +363,7 @@ namespace WinMaps.Rendering
 
             var bounds = _viewport.GetBounds();
 
-            if (_cachedWays != null &&
+            if (_cachedWays != null && _cachedWays.Count > 0 &&
                 Math.Abs(_cacheZoom - _viewport.Zoom) < 0.01 &&
                 bounds.minLat >= _cacheMinLat && bounds.maxLat <= _cacheMaxLat &&
                 bounds.minLon >= _cacheMinLon && bounds.maxLon <= _cacheMaxLon)
@@ -378,15 +378,13 @@ namespace WinMaps.Rendering
             double latMargin = latSpan * margin;
             double lonMargin = lonSpan * margin;
 
-            _cacheMinLat = bounds.minLat - latMargin;
-            _cacheMaxLat = bounds.maxLat + latMargin;
-            _cacheMinLon = bounds.minLon - lonMargin;
-            _cacheMaxLon = bounds.maxLon + lonMargin;
-            _cacheZoom = _viewport.Zoom;
-
-            double queryMinLat = _cacheMinLat, queryMaxLat = _cacheMaxLat;
-            double queryMinLon = _cacheMinLon, queryMaxLon = _cacheMaxLon;
-            double queryZoom = _cacheZoom;
+            // Compute query bounds but don't store as cache bounds yet — avoids race
+            // where pending reloads see stale bounds as "valid"
+            double queryMinLat = bounds.minLat - latMargin;
+            double queryMaxLat = bounds.maxLat + latMargin;
+            double queryMinLon = bounds.minLon - lonMargin;
+            double queryMaxLon = bounds.maxLon + lonMargin;
+            double queryZoom = _viewport.Zoom;
 
             _isLoading = true;
 
@@ -509,6 +507,13 @@ namespace WinMaps.Rendering
             _cachedWays = newCachedWays;
             _cachedPois = newCachedPois;
             _cachedPlaces = newCachedPlaces;
+            // Store cache bounds only after data is loaded — prevents races where
+            // pending reloads skip because bounds look valid with stale/empty data
+            _cacheMinLat = queryMinLat;
+            _cacheMaxLat = queryMaxLat;
+            _cacheMinLon = queryMinLon;
+            _cacheMaxLon = queryMaxLon;
+            _cacheZoom = queryZoom;
             _isLoading = false;
 
             // If a reload was requested while we were loading, re-run
