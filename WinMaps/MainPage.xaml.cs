@@ -1743,26 +1743,33 @@ namespace WinMaps
                 catch { /* DB unreadable — will be handled during import */ }
             }
 
-            // New DB — let user choose (max 3 commands on UWP MessageDialog)
-            var dialog = new MessageDialog(
-                "Original — full detail, largest DB\n" +
-                "Medium — major roads + large areas, smaller\n" +
-                "Low — main roads only, smallest DB",
-                "Map Quality");
-            dialog.Commands.Add(new UICommand("Original"));
-            dialog.Commands.Add(new UICommand("Medium"));
-            dialog.Commands.Add(new UICommand("Low"));
-            dialog.DefaultCommandIndex = 0;
-            dialog.CancelCommandIndex = 2;
+            // New DB — let user choose via ContentDialog with radio buttons
+            var panel = new StackPanel { Spacing = 4 };
+            var rbOriginal = new RadioButton { Content = "Original — full detail, largest DB", IsChecked = true, GroupName = "Quality" };
+            var rbHigh = new RadioButton { Content = "High — no footpaths", GroupName = "Quality" };
+            var rbMedium = new RadioButton { Content = "Medium — major roads + large areas", GroupName = "Quality" };
+            var rbLow = new RadioButton { Content = "Low — main roads only, smallest DB", GroupName = "Quality" };
+            panel.Children.Add(rbOriginal);
+            panel.Children.Add(rbHigh);
+            panel.Children.Add(rbMedium);
+            panel.Children.Add(rbLow);
+
+            var dialog = new ContentDialog
+            {
+                Title = "Map Quality",
+                Content = panel,
+                PrimaryButtonText = "OK",
+                SecondaryButtonText = "Cancel"
+            };
 
             var result = await dialog.ShowAsync();
-            switch (result.Label)
-            {
-                case "Original": _importQuality = MapQuality.Original; break;
-                case "Medium": _importQuality = MapQuality.Medium; break;
-                case "Low": _importQuality = MapQuality.Low; break;
-                default: return false;
-            }
+            if (result != ContentDialogResult.Primary)
+                return false;
+
+            if (rbLow.IsChecked == true) _importQuality = MapQuality.Low;
+            else if (rbMedium.IsChecked == true) _importQuality = MapQuality.Medium;
+            else if (rbHigh.IsChecked == true) _importQuality = MapQuality.High;
+            else _importQuality = MapQuality.Original;
             return true;
         }
 
