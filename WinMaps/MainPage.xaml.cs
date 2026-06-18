@@ -1744,7 +1744,7 @@ namespace WinMaps
             }
 
             // New DB — let user choose via ContentDialog with radio buttons
-            var panel = new StackPanel { Spacing = 4 };
+            var panel = new StackPanel();
             var rbOriginal = new RadioButton { Content = "Original — full detail, largest DB", IsChecked = true, GroupName = "Quality" };
             var rbHigh = new RadioButton { Content = "High — no footpaths", GroupName = "Quality" };
             var rbMedium = new RadioButton { Content = "Medium — major roads + large areas", GroupName = "Quality" };
