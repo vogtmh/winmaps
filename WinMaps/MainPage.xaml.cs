@@ -736,8 +736,10 @@ namespace WinMaps
         /// </summary>
         private List<string> CollapseCompleteGroups(List<string> regionIds)
         {
-            if (_geofabrikIndex == null || !_geofabrikIndex.IsLoaded || regionIds.Count <= 1)
+            if (_geofabrikIndex == null || !_geofabrikIndex.IsLoaded)
                 return regionIds.Select(id => FormatRegionName(id)).ToList();
+            if (regionIds.Count <= 1)
+                return regionIds.Select(id => _geofabrikIndex.GetRegion(id)?.Name ?? FormatRegionName(id)).ToList();
 
             var idSet = new HashSet<string>(regionIds);
             var result = new List<string>();
@@ -774,7 +776,10 @@ namespace WinMaps
             foreach (var id in regionIds)
             {
                 if (!consumed.Contains(id))
-                    result.Add(FormatRegionName(id));
+                {
+                    var region = _geofabrikIndex.GetRegion(id);
+                    result.Add(region?.Name ?? FormatRegionName(id));
+                }
             }
 
             return result;
@@ -2860,9 +2865,10 @@ namespace WinMaps
             // Regions without a parent (top-level)
             foreach (var id in noParent)
             {
+                var region = _geofabrikIndex.GetRegion(id);
                 panel.Children.Add(new TextBlock
                 {
-                    Text = "\u2022 " + FormatRegionName(id),
+                    Text = "\u2022 " + (region?.Name ?? FormatRegionName(id)),
                     FontSize = 14,
                     Margin = new Thickness(0, 2, 0, 2)
                 });
