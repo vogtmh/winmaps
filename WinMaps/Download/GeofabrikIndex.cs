@@ -269,21 +269,6 @@ namespace WinMaps.Download
                     PbfUrl = pbfUrl
                 };
 
-                // Parse bounding box [minLon, minLat, maxLon, maxLat]
-                if (feature.ContainsKey("bbox") &&
-                    feature.GetNamedValue("bbox").ValueType == JsonValueType.Array)
-                {
-                    var bbox = feature.GetNamedArray("bbox");
-                    if (bbox.Count >= 4)
-                    {
-                        region.BboxMinLon = bbox.GetNumberAt(0);
-                        region.BboxMinLat = bbox.GetNumberAt(1);
-                        region.BboxMaxLon = bbox.GetNumberAt(2);
-                        region.BboxMaxLat = bbox.GetNumberAt(3);
-                        region.HasBbox = true;
-                    }
-                }
-
                 _regions[id] = region;
 
                 // Build ISO → region index
