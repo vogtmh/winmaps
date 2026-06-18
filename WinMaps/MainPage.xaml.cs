@@ -41,8 +41,12 @@ namespace WinMaps
     {
         public string Id { get; set; }
         public string Name { get; set; }
-        public Visibility DownloadVisibility { get; set; }
-        public Visibility DrillVisibility { get; set; }
+        public bool HasChildren { get; set; }
+        public string IconGlyph { get; set; } // DownloadMap or FolderOpen
+        public string Subtitle { get; set; } // breadcrumb path for Near Me items
+        public string SectionHeader { get; set; } // e.g. "Near me" — shown above this item
+        public Visibility SubtitleVisibility => string.IsNullOrEmpty(Subtitle) ? Visibility.Collapsed : Visibility.Visible;
+        public Visibility SectionVisibility => string.IsNullOrEmpty(SectionHeader) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     // View model for Theme list
@@ -791,7 +795,7 @@ namespace WinMaps
             if (mapId == null) return;
 
             await SwitchToMap(mapId);
-            MapManagerPanel.Visibility = Visibility.Collapsed;
+            RefreshMyMapsList();
         }
 
         private async Task SwitchToMap(string mapId)
@@ -1612,6 +1616,8 @@ namespace WinMaps
             FallBackToBrowse(region.Id);
         }
 
+        private string _browseCurrentParent; // current parent ID for Download All
+
         private async void ShowBrowseLevel(string parentId)
         {
             if (!_geofabrikIndex.IsLoaded)
@@ -1627,11 +1633,13 @@ namespace WinMaps
                     TxtBrowseTitle.Text = "Error loading catalog";
                     LvBrowse.ItemsSource = new List<BrowseRegionItem>
                     {
-                        new BrowseRegionItem { Name = ex.Message, DownloadVisibility = Visibility.Collapsed, DrillVisibility = Visibility.Collapsed }
+                        new BrowseRegionItem { Name = ex.Message, HasChildren = false, IconGlyph = "\uE783" }
                     };
                     return;
                 }
             }
+
+            _browseCurrentParent = parentId;
 
             // Update title
             if (parentId == null)
@@ -1644,42 +1652,151 @@ namespace WinMaps
                 BtnBrowseBack.Visibility = Visibility.Visible;
             }
 
+            var items = new List<BrowseRegionItem>();
+
+            // "Near me" suggestion at root level when GPS is available
+            if (parentId == null && !double.IsNaN(_gpsLat) && !double.IsNaN(_gpsLon))
+            {
+                // Load geo index for bounding boxes if not yet loaded
+                if (!_geoIndex.IsLoaded)
+                {
+                    try { await _geoIndex.LoadAsync(_geofabrikIndex); } catch { }
+                }
+
+                var nearest = _geofabrikIndex.FindSmallestContaining(_gpsLat, _gpsLon);
+                if (nearest != null)
+                {
+                    bool hasChildren = _geofabrikIndex.HasChildren(nearest.Id);
+                    items.Add(new BrowseRegionItem
+                    {
+                        Id = nearest.Id,
+                        Name = nearest.Name,
+                        HasChildren = hasChildren,
+                        IconGlyph = hasChildren ? "\uE838" : "\uE826",
+                        SectionHeader = "Near me",
+                        Subtitle = _geofabrikIndex.GetBreadcrumb(nearest.Id)
+                    });
+                }
+            }
+
             var children = parentId == null
                 ? _geofabrikIndex.GetRoots()
                 : _geofabrikIndex.GetChildren(parentId);
 
-            var items = new List<BrowseRegionItem>();
+            bool anyHasChildren = false;
+            bool firstRegular = true;
 
             foreach (var region in children)
             {
-                bool isContinent = _geofabrikIndex.IsContinent(region.Id);
                 bool hasChildren = _geofabrikIndex.HasChildren(region.Id);
+                if (hasChildren) anyHasChildren = true;
 
-                items.Add(new BrowseRegionItem
+                var item = new BrowseRegionItem
                 {
                     Id = region.Id,
                     Name = region.Name,
-                    DownloadVisibility = (isContinent && hasChildren) ? Visibility.Collapsed : Visibility.Visible,
-                    DrillVisibility = hasChildren ? Visibility.Visible : Visibility.Collapsed
-                });
+                    HasChildren = hasChildren,
+                    IconGlyph = hasChildren ? "\uE838" : "\uE826"
+                };
+
+                // Add alphabet section header at root level for first regular item
+                if (parentId == null && firstRegular && items.Count > 0)
+                {
+                    item.SectionHeader = region.Name.Substring(0, 1).ToUpper();
+                    firstRegular = false;
+                }
+
+                items.Add(item);
             }
 
             LvBrowse.ItemsSource = items;
+
+            // Show Download All only when viewing a non-root parent with leaf items
+            BtnDownloadAll.Visibility = (parentId != null && !anyHasChildren)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
 
-        private void BtnDrillInto_Click(object sender, RoutedEventArgs e)
+        private void LvBrowse_ItemClick(object sender, ItemClickEventArgs e)
         {
-            var btn = (Button)sender;
-            string regionId = btn.Tag as string;
-            if (regionId == null) return;
+            var item = e.ClickedItem as BrowseRegionItem;
+            if (item == null) return;
 
-            // Get current parent from the stack or null
-            string currentParent = _browseStack.Count > 0 ? _browseStack.Peek() : null;
+            if (item.HasChildren)
+            {
+                // Drill into folder
+                _browseStack.Push(item.Id);
+                ShowBrowseLevel(item.Id);
+            }
+            else
+            {
+                // Download this leaf region
+                DownloadRegion(item.Id);
+            }
+        }
 
-            // Find the actual current level parent (the parent of items currently shown)
-            // We need to push the ID we're drilling into
-            _browseStack.Push(regionId);
-            ShowBrowseLevel(regionId);
+        private async void DownloadRegion(string regionId)
+        {
+            var geoRegion = _geofabrikIndex.GetRegion(regionId);
+            if (geoRegion == null) return;
+
+            string countryKey = _geofabrikIndex.GetCountryId(regionId);
+
+            _selectedRegion = MapRegion.FromGeofabrik(geoRegion);
+            _selectedRegion.CountryKey = countryKey;
+
+            // If this exact region is already installed, ask before re-downloading
+            var installedIds = GetInstalledRegionIds();
+            if (installedIds.Contains(regionId))
+            {
+                var dialog = new MessageDialog(
+                    $"\"{geoRegion.Name}\" is already installed. Download and re-import it?",
+                    "Already Downloaded");
+                dialog.Commands.Add(new UICommand("Re-download"));
+                dialog.Commands.Add(new UICommand("Cancel"));
+                dialog.DefaultCommandIndex = 1;
+                dialog.CancelCommandIndex = 1;
+                var result = await dialog.ShowAsync();
+                if (result.Label != "Re-download") return;
+            }
+
+            if (!await PickImportQualityAsync(countryKey)) return;
+            MapManagerPanel.Visibility = Visibility.Collapsed;
+            await StartDownloadAndImport();
+        }
+
+        private async void BtnDownloadAll_Click(object sender, RoutedEventArgs e)
+        {
+            if (_browseCurrentParent == null) return;
+
+            var parentRegion = _geofabrikIndex.GetRegion(_browseCurrentParent);
+            if (parentRegion == null) return;
+
+            string countryKey = _geofabrikIndex.GetCountryId(_browseCurrentParent);
+
+            // Always download the smallest possible parts (leaves)
+            var leaves = _geofabrikIndex.GetLeaves(_browseCurrentParent);
+            string leafNames = string.Join("\n", leaves.Select(l => "  \u2022 " + l.Name));
+            var confirmDialog = new MessageDialog(
+                $"This will download all {leaves.Count} sub-regions of \"{parentRegion.Name}\" one by one:\n\n{leafNames}",
+                "Download All Sub-regions");
+            confirmDialog.Commands.Add(new UICommand("Download All"));
+            confirmDialog.Commands.Add(new UICommand("Cancel"));
+            confirmDialog.DefaultCommandIndex = 0;
+            confirmDialog.CancelCommandIndex = 1;
+            var confirmResult = await confirmDialog.ShowAsync();
+            if (confirmResult.Label != "Download All") return;
+
+            var regions = leaves.Select(l =>
+            {
+                var r = MapRegion.FromGeofabrik(l);
+                r.CountryKey = countryKey;
+                return r;
+            }).ToList();
+
+            if (!await PickImportQualityAsync(countryKey)) return;
+            MapManagerPanel.Visibility = Visibility.Collapsed;
+            await StartBatchDownloadAndImport(regions);
         }
 
         private void BtnBrowseBack_Click(object sender, RoutedEventArgs e)
@@ -1718,75 +1835,9 @@ namespace WinMaps
                 TxtBrowseTitle.Text = "Refresh failed";
                 LvBrowse.ItemsSource = new List<BrowseRegionItem>
                 {
-                    new BrowseRegionItem { Name = ex.Message, DownloadVisibility = Visibility.Collapsed, DrillVisibility = Visibility.Collapsed }
+                    new BrowseRegionItem { Name = ex.Message, HasChildren = false, IconGlyph = "\uE783" }
                 };
             }
-        }
-
-        // ---- Download from Browse ----
-
-        private async void BtnDownloadRegion_Click(object sender, RoutedEventArgs e)
-        {
-            var btn = (Button)sender;
-            string regionId = btn.Tag as string;
-            if (regionId == null) return;
-
-            var geoRegion = _geofabrikIndex.GetRegion(regionId);
-            if (geoRegion == null) return;
-
-            string countryKey = _geofabrikIndex.GetCountryId(regionId);
-
-            // If region has children, collect leaves and offer batch download
-            if (_geofabrikIndex.HasChildren(regionId))
-            {
-                var leaves = _geofabrikIndex.GetLeaves(regionId);
-                string leafNames = string.Join("\n", leaves.Select(l => "  \u2022 " + l.Name));
-                var dialog = new MessageDialog(
-                    $"This will download all {leaves.Count} sub-regions of \"{geoRegion.Name}\" one by one:\n\n{leafNames}",
-                    "Download All Sub-regions");
-                dialog.Commands.Add(new UICommand("Download All"));
-                dialog.Commands.Add(new UICommand("Cancel"));
-                dialog.DefaultCommandIndex = 0;
-                dialog.CancelCommandIndex = 1;
-                var result = await dialog.ShowAsync();
-                if (result.Label != "Download All") return;
-
-                var regions = leaves.Select(l =>
-                {
-                    var r = MapRegion.FromGeofabrik(l);
-                    r.CountryKey = countryKey;
-                    return r;
-                }).ToList();
-
-                if (!await PickImportQualityAsync(countryKey)) return;
-                MapManagerPanel.Visibility = Visibility.Collapsed;
-                await StartBatchDownloadAndImport(regions);
-                return;
-            }
-
-            _selectedRegion = MapRegion.FromGeofabrik(geoRegion);
-            // Resolve country via parent chain (IDs have no slashes in Geofabrik JSON)
-            _selectedRegion.CountryKey = countryKey;
-
-            // If this exact region is already installed, ask before re-downloading
-            var installedIds = GetInstalledRegionIds();
-            if (installedIds.Contains(regionId))
-            {
-                var dialog = new MessageDialog(
-                    $"\"{geoRegion.Name}\" is already installed. Download and re-import it?",
-                    "Already Downloaded");
-                dialog.Commands.Add(new UICommand("Re-download"));
-                dialog.Commands.Add(new UICommand("Cancel"));
-                dialog.DefaultCommandIndex = 1;
-                dialog.CancelCommandIndex = 1;
-                var result = await dialog.ShowAsync();
-                if (result.Label != "Re-download") return;
-            }
-
-            // Hide map manager, show download overlay
-            if (!await PickImportQualityAsync(countryKey)) return;
-            MapManagerPanel.Visibility = Visibility.Collapsed;
-            await StartDownloadAndImport();
         }
 
         // ---- Download & Import ----

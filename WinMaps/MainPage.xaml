@@ -228,12 +228,13 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- Header with breadcrumb -->
+                <!-- Header with breadcrumb + refresh -->
                 <Grid Grid.Row="0" Padding="8,12,16,12"
                       Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <Button x:Name="BtnBrowseBack" Background="Transparent" Margin="0,0,8,0"
                             Click="BtnBrowseBack_Click">
@@ -242,39 +243,60 @@
                     <TextBlock x:Name="TxtBrowseTitle" Text="Select Region"
                                Grid.Column="1" FontSize="16" FontWeight="SemiBold"
                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Button Grid.Column="2" Background="Transparent"
+                            Click="BtnRefreshCatalog_Click">
+                        <FontIcon Glyph="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="16" />
+                    </Button>
                 </Grid>
 
                 <!-- Region list -->
                 <ListView x:Name="LvBrowse" Grid.Row="1" Padding="8"
-                          SelectionMode="None">
+                          SelectionMode="None" IsItemClickEnabled="True"
+                          ItemClick="LvBrowse_ItemClick">
                     <ListView.ItemTemplate>
                         <DataTemplate>
-                            <Grid Padding="8,10" Margin="0,2">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Content="▶" FontSize="14"
-                                        Tag="{Binding Id}" Margin="0,0,8,0"
-                                        Click="BtnDrillInto_Click"
-                                        Visibility="{Binding DrillVisibility}" />
-                                <TextBlock Grid.Column="1" Text="{Binding Name}"
-                                           FontSize="15" VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis" />
-                                <Button Grid.Column="2" Content="⬇" FontSize="16"
-                                        Tag="{Binding Id}" Margin="8,0,0,0"
-                                        Click="BtnDownloadRegion_Click"
-                                        Visibility="{Binding DownloadVisibility}" />
-                            </Grid>
+                            <StackPanel>
+                                <!-- Optional section header (e.g. "Near me") -->
+                                <TextBlock Text="{Binding SectionHeader}"
+                                           Visibility="{Binding SectionVisibility}"
+                                           FontSize="13" Foreground="Gray"
+                                           Margin="0,8,0,4" />
+                                <!-- Region row -->
+                                <Grid Padding="8,10" Margin="0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon Grid.Column="0" Glyph="{Binding IconGlyph}"
+                                              FontFamily="Segoe MDL2 Assets" FontSize="18"
+                                              Margin="0,0,12,0" VerticalAlignment="Center"
+                                              Opacity="0.7" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontSize="15"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Subtitle}"
+                                                   Visibility="{Binding SubtitleVisibility}"
+                                                   FontSize="12" Foreground="Gray"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <!-- Refresh button -->
-                <Button Grid.Row="2" Content="↻ Refresh Catalog"
+                <!-- Download All button (only visible when viewing a parent with children) -->
+                <Button x:Name="BtnDownloadAll" Grid.Row="2"
                         HorizontalAlignment="Stretch" Margin="16,8"
-                        Click="BtnRefreshCatalog_Click" />
+                        Click="BtnDownloadAll_Click" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <FontIcon Glyph="&#xE826;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                  VerticalAlignment="Center" />
+                        <TextBlock Text="Download All" Margin="8,0,0,0"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
             </Grid>
         </Grid>
         <!-- Theme selector overlay -->

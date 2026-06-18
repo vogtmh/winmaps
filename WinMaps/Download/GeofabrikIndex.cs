@@ -187,6 +187,35 @@ namespace WinMaps.Download
             return string.Join(" › ", parts);
         }
 
+        /// <summary>
+        /// Returns the smallest (by bounding-box area) leaf region whose bbox contains the point,
+        /// or null if none found. Requires bboxes to be loaded via GeofabrikGeoIndex first.
+        /// </summary>
+        public GeofabrikRegion FindSmallestContaining(double lat, double lon)
+        {
+            if (_regions == null) return null;
+
+            GeofabrikRegion best = null;
+            double bestArea = double.MaxValue;
+
+            foreach (var region in _regions.Values)
+            {
+                if (!region.HasBbox) continue;
+                if (lat < region.BboxMinLat || lat > region.BboxMaxLat) continue;
+                if (lon < region.BboxMinLon || lon > region.BboxMaxLon) continue;
+
+                double area = (region.BboxMaxLat - region.BboxMinLat) *
+                              (region.BboxMaxLon - region.BboxMinLon);
+                if (area < bestArea)
+                {
+                    bestArea = area;
+                    best = region;
+                }
+            }
+
+            return best;
+        }
+
         private void ParseIndex(string json)
         {
             _regions = new Dictionary<string, GeofabrikRegion>();
