@@ -1675,7 +1675,7 @@ namespace WinMaps
                         Name = nearest.Name,
                         HasChildren = hasChildren,
                         IconGlyph = hasChildren ? "\uE838" : "\uE896",
-                        SectionHeader = "Near me",
+                        SectionHeader = "Current region",
                         Subtitle = _geofabrikIndex.GetBreadcrumb(nearest.Id)
                     });
                 }
