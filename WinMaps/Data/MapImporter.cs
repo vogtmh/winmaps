@@ -17,6 +17,14 @@ namespace WinMaps.Data
         Done
     }
 
+    internal enum MapQuality
+    {
+        Original = 0,
+        High = 1,
+        Medium = 2,
+        Low = 3
+    }
+
     internal class ImportProgress
     {
         public ImportPhase Phase;
@@ -30,6 +38,8 @@ namespace WinMaps.Data
         private const int BatchSize = 50000;
 
         public event Action<ImportProgress> OnProgress;
+
+        public MapQuality Quality { get; set; } = MapQuality.Original;
 
         public async Task ImportAsync(string pbfPath, MapDatabase db, CancellationToken ct, string regionId, string regionName)
         {
@@ -61,6 +71,10 @@ namespace WinMaps.Data
 
                 parser.OnWay += way =>
                 {
+                    // Skip ways excluded by quality setting (pass 1: no bounds available)
+                    if (ShouldSkipWay(way.Type, way.SubType, 0, 0, 0, 0))
+                        return;
+
                     for (int i = 0; i < way.NodeRefs.Length; i++)
                         nodeIdList.Add(way.NodeRefs[i]);
 
@@ -155,10 +169,17 @@ namespace WinMaps.Data
                         if (points.Count < 2)
                             return;
 
+                        // Skip ways excluded by quality setting (pass 2: bounds are known)
+                        if (ShouldSkipWay(way.Type, way.SubType, minLat, maxLat, minLon, maxLon))
+                            return;
+
                         byte[] geometry = MapDatabase.EncodeGeometry(points);
 
-                        // Pre-simplify geometry for low-zoom rendering (~0.0003° ≈ 33m ≈ 4px at Z12)
-                        byte[] geoSimple = MapDatabase.SimplifyGeometry(points, 0.0003);
+                        // Pre-simplify geometry for low-zoom rendering
+                        // More aggressive simplification at lower quality settings
+                        double simplifyDist = Quality == MapQuality.Low ? 0.001
+                            : Quality == MapQuality.Medium ? 0.0005 : 0.0003;
+                        byte[] geoSimple = MapDatabase.SimplifyGeometry(points, simplifyDist);
 
                         db.InsertWay(way.Id, (int)way.Type, way.SubType, geometry, geoSimple,
                             minLat, maxLat, minLon, maxLon, tx);
@@ -247,6 +268,7 @@ namespace WinMaps.Data
             db.SetMetadata("node_count", nodeCount.ToString());
             db.SetMetadata("way_count", wayCount.ToString());
             db.SetMetadata("source", pbfPath);
+            db.SetMetadata("quality", Quality.ToString().ToLower());
 
             db.InsertRegion(regionId, regionName);
 
@@ -284,6 +306,58 @@ namespace WinMaps.Data
                 NodesImported = nodes,
                 WaysImported = ways
             });
+        }
+
+        // Road subtypes to exclude at each quality level
+        private static readonly HashSet<string> ExcludeHigh = new HashSet<string>
+            { "footway", "path", "cycleway" };
+        private static readonly HashSet<string> ExcludeMedium = new HashSet<string>
+            { "footway", "path", "cycleway", "service", "track", "steps", "pedestrian" };
+        private static readonly HashSet<string> KeepLow = new HashSet<string>
+            { "motorway", "trunk", "primary", "secondary", "motorway_link", "trunk_link", "primary_link", "secondary_link" };
+
+        /// <summary>
+        /// Returns true if the way should be skipped based on quality setting.
+        /// For pass 1, minLat/maxLat/minLon/maxLon are not known yet — pass 0 for all.
+        /// </summary>
+        private bool ShouldSkipWay(OsmElementType type, string subType,
+            double minLat, double maxLat, double minLon, double maxLon)
+        {
+            if (Quality == MapQuality.Original) return false;
+
+            if (type == OsmElementType.Road)
+            {
+                if (Quality == MapQuality.High)
+                    return subType != null && ExcludeHigh.Contains(subType);
+                if (Quality == MapQuality.Medium)
+                    return subType != null && ExcludeMedium.Contains(subType);
+                // Low: keep only major roads
+                return subType == null || !KeepLow.Contains(subType);
+            }
+
+            // Area-based filtering (water, parks, buildings) — only in pass 2 where we have bounds
+            if (maxLat > minLat) // we have real bounds
+            {
+                double area = (maxLat - minLat) * (maxLon - minLon);
+                if (type == OsmElementType.Building)
+                {
+                    if (Quality == MapQuality.Low) return true; // no buildings at all
+                    if (Quality == MapQuality.Medium) return area < 0.00001; // ~110m × 80m
+                }
+                if (type == OsmElementType.Water || type == OsmElementType.Park)
+                {
+                    if (Quality == MapQuality.Low) return area < 0.001;
+                    if (Quality == MapQuality.Medium) return area < 0.00005;
+                }
+            }
+            else
+            {
+                // Pass 1: we can still skip buildings entirely for Low
+                if (type == OsmElementType.Building && Quality == MapQuality.Low)
+                    return true;
+            }
+
+            return false;
         }
     }
 }

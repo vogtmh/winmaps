@@ -82,6 +82,7 @@ namespace WinMaps
         // Active region for download/import
         private MapRegion _selectedRegion;
         private string _activeMapId;
+        private MapQuality _importQuality = MapQuality.Original;
 
         // Map manager
         private GeofabrikIndex _geofabrikIndex;
@@ -667,12 +668,27 @@ namespace WinMaps
                         id.Split('/').LastOrDefault() ?? id))
                     : "";
 
+                // Read quality from DB metadata
+                string qualityText = "";
+                try
+                {
+                    using (var tempDb = new MapDatabase(dbPath))
+                    {
+                        tempDb.OpenSync();
+                        string q = tempDb.GetMetadata("quality");
+                        if (q != null && q != "original")
+                            qualityText = " [" + q.Substring(0, 1).ToUpper() + q.Substring(1) + "]";
+                    }
+                }
+                catch { }
+
                 items.Add(new DownloadedMapItem
                 {
                     Id = countryKey,
                     Name = kv.Value,
                     StatusText = (isActive ? "\u25cf Active" : "") +
-                                 (regionsText.Length > 0 ? (isActive ? " \u2014 " : "") + regionsText : ""),
+                                 qualityText +
+                                 (regionsText.Length > 0 ? (isActive || qualityText.Length > 0 ? " \u2014 " : "") + regionsText : ""),
                     SizeText = FormatFileSize(fileSize),
                     UseVisibility = isActive ? Visibility.Collapsed : Visibility.Visible
                 });
@@ -1665,6 +1681,7 @@ namespace WinMaps
                     return r;
                 }).ToList();
 
+                if (!await PickImportQualityAsync(countryKey)) return;
                 MapManagerPanel.Visibility = Visibility.Collapsed;
                 await StartBatchDownloadAndImport(regions);
                 return;
@@ -1690,11 +1707,67 @@ namespace WinMaps
             }
 
             // Hide map manager, show download overlay
+            if (!await PickImportQualityAsync(countryKey)) return;
             MapManagerPanel.Visibility = Visibility.Collapsed;
             await StartDownloadAndImport();
         }
 
         // ---- Download & Import ----
+
+        /// <summary>
+        /// Shows a quality picker dialog if the country DB doesn't exist yet.
+        /// If the DB already has data, reads the existing quality from metadata.
+        /// Returns false if the user cancelled.
+        /// </summary>
+        private async Task<bool> PickImportQualityAsync(string countryKey)
+        {
+            string dbPath = GetDbPathForMap(countryKey);
+            if (File.Exists(dbPath))
+            {
+                // Check if DB already has a quality setting
+                try
+                {
+                    using (var tempDb = new MapDatabase(dbPath))
+                    {
+                        tempDb.OpenSync();
+                        string existing = tempDb.GetMetadata("quality");
+                        if (existing != null)
+                        {
+                            // Reuse existing quality — can't mix levels in one DB
+                            if (Enum.TryParse(existing, true, out MapQuality q))
+                                _importQuality = q;
+                            return true;
+                        }
+                    }
+                }
+                catch { /* DB unreadable — will be handled during import */ }
+            }
+
+            // New DB — let user choose
+            var dialog = new MessageDialog(
+                "Original — full detail, largest DB\n" +
+                "High — no footpaths, smaller DB\n" +
+                "Medium — major roads + large areas, much smaller\n" +
+                "Low — main roads only, smallest DB",
+                "Map Quality");
+            dialog.Commands.Add(new UICommand("Original"));
+            dialog.Commands.Add(new UICommand("High"));
+            dialog.Commands.Add(new UICommand("Medium"));
+            dialog.Commands.Add(new UICommand("Low"));
+            dialog.DefaultCommandIndex = 0;
+            dialog.CancelCommandIndex = 3;
+
+            var result = await dialog.ShowAsync();
+            switch (result.Label)
+            {
+                case "Original": _importQuality = MapQuality.Original; break;
+                case "High": _importQuality = MapQuality.High; break;
+                case "Medium": _importQuality = MapQuality.Medium; break;
+                case "Low": _importQuality = MapQuality.Low; break;
+                default: return false;
+            }
+            return true;
+        }
 
         private async void BtnDownload_Click(object sender, RoutedEventArgs e)
         {
@@ -1916,6 +1989,7 @@ namespace WinMaps
             }
 
             var importer = new MapImporter();
+            importer.Quality = _importQuality;
             importer.OnProgress += OnImportProgress;
             await importer.ImportAsync(pbfPath, _db, ct, region.Id, region.Name);
             importer.OnProgress -= OnImportProgress;

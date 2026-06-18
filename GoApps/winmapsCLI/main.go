@@ -233,6 +233,68 @@ const (
 	TypeBuilding = 3
 )
 
+// Quality levels (matching C# MapQuality enum)
+const (
+	QualityOriginal = 0
+	QualityHigh     = 1
+	QualityMedium   = 2
+	QualityLow      = 3
+)
+
+var quality = QualityOriginal // set via -quality flag
+
+var excludeHigh = map[string]bool{"footway": true, "path": true, "cycleway": true}
+var excludeMedium = map[string]bool{
+	"footway": true, "path": true, "cycleway": true,
+	"service": true, "track": true, "steps": true, "pedestrian": true,
+}
+var keepLow = map[string]bool{
+	"motorway": true, "trunk": true, "primary": true, "secondary": true,
+	"motorway_link": true, "trunk_link": true, "primary_link": true, "secondary_link": true,
+}
+
+// shouldSkipWay returns true if the way should be excluded based on quality.
+// Pass zero bounds for pass 1 (road-type filtering only).
+func shouldSkipWay(wayType int, subType string, minLat, maxLat, minLon, maxLon float64) bool {
+	if quality == QualityOriginal {
+		return false
+	}
+	if wayType == TypeRoad {
+		switch quality {
+		case QualityHigh:
+			return excludeHigh[subType]
+		case QualityMedium:
+			return excludeMedium[subType]
+		case QualityLow:
+			return !keepLow[subType]
+		}
+	}
+	if maxLat > minLat { // pass 2: we have real bounds
+		area := (maxLat - minLat) * (maxLon - minLon)
+		if wayType == TypeBuilding {
+			if quality == QualityLow {
+				return true
+			}
+			if quality == QualityMedium {
+				return area < 0.00001
+			}
+		}
+		if wayType == TypeWater || wayType == TypePark {
+			if quality == QualityLow {
+				return area < 0.001
+			}
+			if quality == QualityMedium {
+				return area < 0.00005
+			}
+		}
+	} else {
+		if wayType == TypeBuilding && quality == QualityLow {
+			return true
+		}
+	}
+	return false
+}
+
 var roadKeys = map[string]bool{
 	"motorway": true, "trunk": true, "primary": true, "secondary": true, "tertiary": true,
 	"motorway_link": true, "trunk_link": true, "primary_link": true, "secondary_link": true, "tertiary_link": true,
@@ -478,7 +540,11 @@ type pass1Handler struct {
 func (h *pass1Handler) ReadNode(n gosmparse.Node)         {}
 func (h *pass1Handler) ReadRelation(r gosmparse.Relation) {}
 func (h *pass1Handler) ReadWay(w gosmparse.Way) {
-	if _, _, ok := classifyWay(w.Tags); !ok {
+	wt, ws, ok := classifyWay(w.Tags)
+	if !ok {
+		return
+	}
+	if shouldSkipWay(wt, ws, 0, 0, 0, 0) {
 		return
 	}
 	h.mu.Lock()
@@ -582,8 +648,19 @@ func (h *pass2Handler) ReadWay(w gosmparse.Way) {
 	if len(lats) < 2 {
 		return
 	}
+	// Quality filter with actual bounds
+	if shouldSkipWay(wt, ws, minLat, maxLat, minLon, maxLon) {
+		return
+	}
+	// More aggressive simplification at lower quality
+	simplifyDist := 0.0003
+	if quality == QualityLow {
+		simplifyDist = 0.001
+	} else if quality == QualityMedium {
+		simplifyDist = 0.0005
+	}
 	geo := encodeGeometry(lats, lons)
-	geoSimple := simplifyGeometry(lats, lons, 0.0003) // ~33m ≈ 4px at Z12
+	geoSimple := simplifyGeometry(lats, lons, simplifyDist)
 	h.wayCh <- wayRow{int64(w.ID), wt, ws, geo, geoSimple, minLat, maxLat, minLon, maxLon}
 	atomic.AddInt64(&h.wayCount, 1)
 }
@@ -770,6 +847,10 @@ func importPbf(pbfPath, dbPath string) error {
 	db.Exec("INSERT OR REPLACE INTO metadata(key, value) VALUES(?, ?)",
 		"source", filepath.Base(pbfPath))
 
+	qualityNames := []string{"original", "high", "medium", "low"}
+	db.Exec("INSERT OR REPLACE INTO metadata(key, value) VALUES(?, ?)",
+		"quality", qualityNames[quality])
+
 	totalDur := time.Since(totalStart)
 	dbStat, _ := os.Stat(dbPath)
 
@@ -847,8 +928,33 @@ func compressDB(dbPath, gzPath string) error {
 // ---------------------------------------------------------------------------
 
 func main() {
+	// Parse -quality flag
+	qualityFlag := ""
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-quality" && i+1 < len(args) {
+			qualityFlag = strings.ToLower(args[i+1])
+			i++
+		}
+	}
+	switch qualityFlag {
+	case "high":
+		quality = QualityHigh
+	case "medium":
+		quality = QualityMedium
+	case "low":
+		quality = QualityLow
+	case "", "original":
+		quality = QualityOriginal
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown quality: %s (use original/high/medium/low)\n", qualityFlag)
+		os.Exit(1)
+	}
+
 	fmt.Println("=== WinMaps DB Prebuild Tool ===")
 	fmt.Printf("Runtime: %d CPUs, GOMAXPROCS=%d\n", runtime.NumCPU(), runtime.GOMAXPROCS(0))
+	qualityNames := []string{"original", "high", "medium", "low"}
+	fmt.Printf("Quality: %s\n", qualityNames[quality])
 	fmt.Println()
 
 	regions, err := fetchIndex()
