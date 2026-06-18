@@ -1657,12 +1657,6 @@ namespace WinMaps
             // "Near me" suggestion at root level when GPS is available
             if (parentId == null && !double.IsNaN(_gpsLat) && !double.IsNaN(_gpsLon))
             {
-                // Load geo index for bounding boxes if not yet loaded
-                if (!_geoIndex.IsLoaded)
-                {
-                    try { await _geoIndex.LoadAsync(_geofabrikIndex); } catch { }
-                }
-
                 var nearest = _geofabrikIndex.FindSmallestContaining(_gpsLat, _gpsLon);
                 if (nearest != null)
                 {
@@ -1672,7 +1666,7 @@ namespace WinMaps
                         Id = nearest.Id,
                         Name = nearest.Name,
                         HasChildren = hasChildren,
-                        IconGlyph = hasChildren ? "\uE838" : "\uE826",
+                        IconGlyph = hasChildren ? "\uE838" : "\uE896",
                         SectionHeader = "Near me",
                         Subtitle = _geofabrikIndex.GetBreadcrumb(nearest.Id)
                     });
@@ -1684,7 +1678,7 @@ namespace WinMaps
                 : _geofabrikIndex.GetChildren(parentId);
 
             bool anyHasChildren = false;
-            bool firstRegular = true;
+            bool hasNearMe = items.Count > 0; // Near Me was inserted
 
             foreach (var region in children)
             {
@@ -1696,14 +1690,14 @@ namespace WinMaps
                     Id = region.Id,
                     Name = region.Name,
                     HasChildren = hasChildren,
-                    IconGlyph = hasChildren ? "\uE838" : "\uE826"
+                    IconGlyph = hasChildren ? "\uE838" : "\uE896"
                 };
 
-                // Add alphabet section header at root level for first regular item
-                if (parentId == null && firstRegular && items.Count > 0)
+                // Separate "Near me" from the regular list
+                if (hasNearMe)
                 {
-                    item.SectionHeader = region.Name.Substring(0, 1).ToUpper();
-                    firstRegular = false;
+                    item.SectionHeader = "All regions";
+                    hasNearMe = false;
                 }
 
                 items.Add(item);
