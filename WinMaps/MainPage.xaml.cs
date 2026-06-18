@@ -33,6 +33,7 @@ namespace WinMaps
         public Visibility UseVisibility { get; set; }
         public bool IsActive { get; set; }
         public List<string> RegionNames { get; set; }
+        public List<string> RegionIds { get; set; }
     }
 
     // View model for Browse list
@@ -665,9 +666,10 @@ namespace WinMaps
                 var countryRegions = installedIds
                     .Where(id => GetCountryKey(id) == countryKey)
                     .ToList();
-                var regionDisplayNames = countryRegions
-                    .Select(id => id.Split('/').LastOrDefault() ?? id)
-                    .ToList();
+
+                // Collapse complete parent groups: if all children of a parent are installed,
+                // replace individual entries with the parent name
+                var regionDisplayNames = CollapseCompleteGroups(countryRegions);
 
                 // Read quality from DB metadata
                 string qualityLabel = "Original";
@@ -698,7 +700,8 @@ namespace WinMaps
                     SizeText = FormatFileSize(fileSize),
                     UseVisibility = isActive ? Visibility.Collapsed : Visibility.Visible,
                     IsActive = isActive,
-                    RegionNames = regionDisplayNames
+                    RegionNames = regionDisplayNames,
+                    RegionIds = countryRegions
                 });
             }
 
@@ -713,6 +716,65 @@ namespace WinMaps
             if (bytes >= 1048576L) return $"{bytes / 1048576.0:F1} MB";
             if (bytes >= 1024L) return $"{bytes / 1024.0:F0} KB";
             return $"{bytes} B";
+        }
+
+        /// <summary>
+        /// Collapses fully-downloaded parent groups into their parent name.
+        /// E.g. if all 4 Regierungsbezirke of Baden-Württemberg are installed,
+        /// they become a single "Baden-Württemberg" entry.
+        /// </summary>
+        private List<string> CollapseCompleteGroups(List<string> regionIds)
+        {
+            if (_geofabrikIndex == null || !_geofabrikIndex.IsLoaded || regionIds.Count <= 1)
+                return regionIds.Select(id => FormatRegionName(id)).ToList();
+
+            var idSet = new HashSet<string>(regionIds);
+            var result = new List<string>();
+            var consumed = new HashSet<string>();
+
+            // Group regions by their parent ID
+            var byParent = new Dictionary<string, List<string>>();
+            foreach (var id in regionIds)
+            {
+                var region = _geofabrikIndex.GetRegion(id);
+                string parentId = region?.ParentId ?? "";
+                if (!byParent.ContainsKey(parentId))
+                    byParent[parentId] = new List<string>();
+                byParent[parentId].Add(id);
+            }
+
+            // Check each parent: if all its children are installed, collapse
+            foreach (var kv in byParent)
+            {
+                if (string.IsNullOrEmpty(kv.Key)) continue;
+                var allChildren = _geofabrikIndex.GetChildren(kv.Key);
+                if (allChildren.Count > 0 && allChildren.Count == kv.Value.Count &&
+                    allChildren.All(c => idSet.Contains(c.Id)))
+                {
+                    // All children present — use parent name
+                    var parent = _geofabrikIndex.GetRegion(kv.Key);
+                    result.Add(parent?.Name ?? FormatRegionName(kv.Key));
+                    foreach (var id in kv.Value)
+                        consumed.Add(id);
+                }
+            }
+
+            // Add remaining (non-collapsed) regions
+            foreach (var id in regionIds)
+            {
+                if (!consumed.Contains(id))
+                    result.Add(FormatRegionName(id));
+            }
+
+            return result;
+        }
+
+        private static string FormatRegionName(string regionId)
+        {
+            string last = regionId.Split('/').LastOrDefault() ?? regionId;
+            // "regierungsbezirk-freiburg" → "Regierungsbezirk Freiburg"
+            return string.Join(" ", last.Split('-')
+                .Select(w => w.Length > 0 ? char.ToUpper(w[0]) + w.Substring(1) : ""));
         }
 
         private async void BtnUseMap_Click(object sender, RoutedEventArgs e)
@@ -2639,25 +2701,110 @@ namespace WinMaps
             string mapId = panel.Tag as string;
             if (mapId == null) return;
 
-            // Find the item to get region names
             var items = LvMyMaps.ItemsSource as List<DownloadedMapItem>;
             var item = items?.FirstOrDefault(i => i.Id == mapId);
-            if (item == null || item.RegionNames == null || item.RegionNames.Count == 0) return;
+            if (item == null || item.RegionIds == null || item.RegionIds.Count == 0) return;
 
-            string regionList = string.Join("\n", item.RegionNames.Select(r =>
-                "\u2022 " + char.ToUpper(r[0]) + r.Substring(1).Replace('-', ' ')));
+            // Build grouped region list using Geofabrik hierarchy
+            var contentPanel = new StackPanel();
+            BuildGroupedRegionList(item.RegionIds, contentPanel);
 
             var dialog = new ContentDialog
             {
                 Title = item.Name,
-                Content = new TextBlock
-                {
-                    Text = regionList,
-                    TextWrapping = TextWrapping.Wrap
-                },
+                Content = contentPanel,
                 CloseButtonText = "Close"
             };
             await dialog.ShowAsync();
+        }
+
+        /// <summary>
+        /// Builds a grouped region list: parent headers with child subtitles.
+        /// If all children of a parent are installed, shows just the parent name.
+        /// </summary>
+        private void BuildGroupedRegionList(List<string> regionIds, StackPanel panel)
+        {
+            if (_geofabrikIndex == null || !_geofabrikIndex.IsLoaded)
+            {
+                // Fallback: plain list
+                foreach (var id in regionIds)
+                    panel.Children.Add(new TextBlock { Text = "\u2022 " + FormatRegionName(id), TextWrapping = TextWrapping.Wrap });
+                return;
+            }
+
+            var idSet = new HashSet<string>(regionIds);
+
+            // Group by parent
+            var byParent = new Dictionary<string, List<string>>();
+            var noParent = new List<string>();
+            foreach (var id in regionIds)
+            {
+                var region = _geofabrikIndex.GetRegion(id);
+                if (region?.ParentId != null)
+                {
+                    if (!byParent.ContainsKey(region.ParentId))
+                        byParent[region.ParentId] = new List<string>();
+                    byParent[region.ParentId].Add(id);
+                }
+                else
+                {
+                    noParent.Add(id);
+                }
+            }
+
+            // Render grouped entries
+            foreach (var kv in byParent)
+            {
+                var allChildren = _geofabrikIndex.GetChildren(kv.Key);
+                bool isComplete = allChildren.Count > 0 && allChildren.All(c => idSet.Contains(c.Id));
+                var parent = _geofabrikIndex.GetRegion(kv.Key);
+                string parentName = parent?.Name ?? FormatRegionName(kv.Key);
+
+                if (isComplete)
+                {
+                    // All children installed — just show parent
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = "\u2022 " + parentName,
+                        FontSize = 14,
+                        Margin = new Thickness(0, 2, 0, 2)
+                    });
+                }
+                else
+                {
+                    // Partial — show parent as header + children indented
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = "\u2022 " + parentName,
+                        FontSize = 14,
+                        FontWeight = Windows.UI.Text.FontWeights.SemiBold,
+                        Margin = new Thickness(0, 4, 0, 0)
+                    });
+                    foreach (var childId in kv.Value)
+                    {
+                        var child = _geofabrikIndex.GetRegion(childId);
+                        string childName = child?.Name ?? FormatRegionName(childId);
+                        panel.Children.Add(new TextBlock
+                        {
+                            Text = "   \u2013 " + childName,
+                            FontSize = 13,
+                            Opacity = 0.7,
+                            Margin = new Thickness(12, 1, 0, 1)
+                        });
+                    }
+                }
+            }
+
+            // Regions without a parent (top-level)
+            foreach (var id in noParent)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "\u2022 " + FormatRegionName(id),
+                    FontSize = 14,
+                    Margin = new Thickness(0, 2, 0, 2)
+                });
+            }
         }
     }
 
