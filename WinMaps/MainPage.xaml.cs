@@ -28,9 +28,11 @@ namespace WinMaps
     {
         public string Id { get; set; }
         public string Name { get; set; }
-        public string StatusText { get; set; }
+        public string SubtitleText { get; set; }
         public string SizeText { get; set; }
         public Visibility UseVisibility { get; set; }
+        public bool IsActive { get; set; }
+        public List<string> RegionNames { get; set; }
     }
 
     // View model for Browse list
@@ -663,34 +665,40 @@ namespace WinMaps
                 var countryRegions = installedIds
                     .Where(id => GetCountryKey(id) == countryKey)
                     .ToList();
-                string regionsText = countryRegions.Count > 0
-                    ? string.Join(", ", countryRegions.Select(id =>
-                        id.Split('/').LastOrDefault() ?? id))
-                    : "";
+                var regionDisplayNames = countryRegions
+                    .Select(id => id.Split('/').LastOrDefault() ?? id)
+                    .ToList();
 
                 // Read quality from DB metadata
-                string qualityText = "";
+                string qualityLabel = "Original";
                 try
                 {
                     using (var tempDb = new MapDatabase(dbPath))
                     {
                         tempDb.OpenSync();
                         string q = tempDb.GetMetadata("quality");
-                        if (q != null && q != "original")
-                            qualityText = " [" + q.Substring(0, 1).ToUpper() + q.Substring(1) + "]";
+                        if (q != null)
+                            qualityLabel = q.Substring(0, 1).ToUpper() + q.Substring(1);
                     }
                 }
                 catch { }
+
+                // Build subtitle: "Medium · 3 regions · 604.3 MB"
+                var parts = new List<string>();
+                parts.Add(qualityLabel);
+                if (countryRegions.Count > 0)
+                    parts.Add(countryRegions.Count == 1 ? "1 region" : $"{countryRegions.Count} regions");
+                parts.Add(FormatFileSize(fileSize));
 
                 items.Add(new DownloadedMapItem
                 {
                     Id = countryKey,
                     Name = kv.Value,
-                    StatusText = (isActive ? "\u25cf Active" : "") +
-                                 qualityText +
-                                 (regionsText.Length > 0 ? (isActive || qualityText.Length > 0 ? " \u2014 " : "") + regionsText : ""),
+                    SubtitleText = string.Join(" \u00B7 ", parts),
                     SizeText = FormatFileSize(fileSize),
-                    UseVisibility = isActive ? Visibility.Collapsed : Visibility.Visible
+                    UseVisibility = isActive ? Visibility.Collapsed : Visibility.Visible,
+                    IsActive = isActive,
+                    RegionNames = regionDisplayNames
                 });
             }
 
@@ -2623,6 +2631,61 @@ namespace WinMaps
                     $"{DateTime.Now:HH:mm:ss.fff} {message}\r\n");
             }
             catch { }
+        }
+
+        private async void MapItem_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            var panel = (FrameworkElement)sender;
+            string mapId = panel.Tag as string;
+            if (mapId == null) return;
+
+            // Find the item to get region names
+            var items = LvMyMaps.ItemsSource as List<DownloadedMapItem>;
+            var item = items?.FirstOrDefault(i => i.Id == mapId);
+            if (item == null || item.RegionNames == null || item.RegionNames.Count == 0) return;
+
+            string regionList = string.Join("\n", item.RegionNames.Select(r =>
+                "\u2022 " + char.ToUpper(r[0]) + r.Substring(1).Replace('-', ' ')));
+
+            var dialog = new ContentDialog
+            {
+                Title = item.Name,
+                Content = new TextBlock
+                {
+                    Text = regionList,
+                    TextWrapping = TextWrapping.Wrap
+                },
+                CloseButtonText = "Close"
+            };
+            await dialog.ShowAsync();
+        }
+    }
+
+    internal class BoolToFontWeightConverter : Windows.UI.Xaml.Data.IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, string language)
+        {
+            return (value is bool b && b)
+                ? Windows.UI.Text.FontWeights.Bold
+                : Windows.UI.Text.FontWeights.Normal;
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, string language)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    internal class BoolToActiveColorConverter : Windows.UI.Xaml.Data.IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, string language)
+        {
+            if (value is bool b && b)
+                return new SolidColorBrush(Colors.Gold);
+            return new SolidColorBrush(Colors.White);
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, string language)
+        {
+            throw new NotImplementedException();
         }
     }
 }
