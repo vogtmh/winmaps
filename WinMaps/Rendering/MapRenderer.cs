@@ -526,7 +526,8 @@ namespace WinMaps.Rendering
 
         // ---- Drawing helpers ----
 
-        public void DrawGpsPosition(CanvasDrawingSession ds, double lat, double lon, double accuracy)
+        public void DrawGpsPosition(CanvasDrawingSession ds, double lat, double lon, double accuracy,
+            double headingDegrees = double.NaN)
         {
             var (x, y) = _viewport.GeoToScreen(lat, lon);
 
@@ -541,9 +542,51 @@ namespace WinMaps.Rendering
                 }
             }
 
+            // Facing-direction cone (drawn under the dot so the dot stays on top)
+            if (!double.IsNaN(headingDegrees))
+            {
+                DrawHeadingCone(ds, ds, x, y, headingDegrees);
+            }
+
             // Halo + dot
             ds.FillCircle(x, y, 8, _theme.GpsDotHalo);
             ds.FillCircle(x, y, 6, _theme.GpsDotFill);
+        }
+
+        /// <summary>
+        /// Draws a translucent wedge from the GPS dot pointing in the facing direction.
+        /// Heading is in degrees clockwise from north (0 = up); screen Y is downward so
+        /// the direction vector is (sin h, -cos h).
+        /// </summary>
+        private void DrawHeadingCone(CanvasDrawingSession ds, ICanvasResourceCreator rc,
+            float x, float y, double headingDegrees)
+        {
+            double h = headingDegrees * Math.PI / 180.0;
+            const double halfAngle = 28.0 * Math.PI / 180.0;
+            const float r = 32f;
+
+            double a1 = h - halfAngle;
+            double a2 = h + halfAngle;
+            float p1x = x + (float)(Math.Sin(a1) * r);
+            float p1y = y - (float)(Math.Cos(a1) * r);
+            float p2x = x + (float)(Math.Sin(a2) * r);
+            float p2y = y - (float)(Math.Cos(a2) * r);
+            float tipx = x + (float)(Math.Sin(h) * r * 1.15);
+            float tipy = y - (float)(Math.Cos(h) * r * 1.15);
+
+            using (var pb = new CanvasPathBuilder(rc))
+            {
+                pb.BeginFigure(x, y);
+                pb.AddLine(p1x, p1y);
+                pb.AddLine(tipx, tipy);
+                pb.AddLine(p2x, p2y);
+                pb.EndFigure(CanvasFigureLoop.Closed);
+                using (var geo = CanvasGeometry.CreatePath(pb))
+                {
+                    var c = _theme.GpsDotFill;
+                    ds.FillGeometry(geo, Color.FromArgb(120, c.R, c.G, c.B));
+                }
+            }
         }
 
         // ---- LOD filtering ----

@@ -82,6 +82,17 @@ namespace WinMaps
         private DispatcherTimer _gpsAnimTimer;
         private const double GpsSmoothFactor = 0.25; // lerp fraction per tick (higher = faster snap)
 
+        // Facing direction (degrees clockwise from north). NaN = unknown.
+        // Source priority: GPS course-over-ground while moving, else the compass sensor.
+        private Windows.Devices.Sensors.Compass _compass;
+        private double _headingDisplay = double.NaN;
+        private double _headingTarget = double.NaN;
+        private long _lastMovementHeadingTicks = 0;
+        private DispatcherTimer _headingTimer;
+        private const double HeadingSmoothFactor = 0.2;
+        private const double MovementSpeedThreshold = 0.5; // m/s — below this GPS heading is unreliable
+        private static readonly long MovementHeadingTimeoutTicks = TimeSpan.FromSeconds(4).Ticks;
+
         // Keep-display-on while GPS tracking (user setting, default on)
         private bool _keepDisplayOn = true;
         private Windows.System.Display.DisplayRequest _displayRequest;
@@ -2508,7 +2519,7 @@ namespace WinMaps
 
                     if (!double.IsNaN(_gpsLat))
                     {
-                        _renderer.DrawGpsPosition(args.DrawingSession, _gpsLat, _gpsLon, _gpsAccuracy);
+                        _renderer.DrawGpsPosition(args.DrawingSession, _gpsLat, _gpsLon, _gpsAccuracy, _headingDisplay);
                     }
                 }
                 catch (Exception ex)
@@ -2689,6 +2700,9 @@ namespace WinMaps
                 _geolocator.PositionChanged += OnGpsPositionChanged;
                 _gpsWasActive = true;
 
+                StartCompass();
+                StartHeadingTimer();
+
                 var pos = await _geolocator.GetGeopositionAsync();
                 UpdateGpsPosition(pos.Coordinate);
                 UpdateDisplayRequest();
@@ -2716,7 +2730,94 @@ namespace WinMaps
                 _gpsAnimTimer.Stop();
                 _gpsAnimTimer = null;
             }
+            StopCompass();
+            if (_headingTimer != null)
+            {
+                _headingTimer.Stop();
+                _headingTimer = null;
+            }
+            _headingDisplay = double.NaN;
+            _headingTarget = double.NaN;
             ReleaseDisplayRequest();
+        }
+
+        // ---- Facing direction (compass fallback + heading smoothing) ----
+
+        private void StartCompass()
+        {
+            if (_compass != null) return;
+            _compass = Windows.Devices.Sensors.Compass.GetDefault();
+            if (_compass != null)
+            {
+                uint min = _compass.MinimumReportInterval;
+                _compass.ReportInterval = min < 100 ? 100 : min;
+                _compass.ReadingChanged += OnCompassReadingChanged;
+            }
+        }
+
+        private void StopCompass()
+        {
+            if (_compass == null) return;
+            _compass.ReadingChanged -= OnCompassReadingChanged;
+            try { _compass.ReportInterval = 0; } catch { }
+            _compass = null;
+        }
+
+        private async void OnCompassReadingChanged(Windows.Devices.Sensors.Compass sender,
+            Windows.Devices.Sensors.CompassReadingChangedEventArgs args)
+        {
+            double h = args.Reading.HeadingMagneticNorth;
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                // Compass is the fallback: only use it when there is no recent
+                // movement-derived heading from the GPS.
+                bool movementStale =
+                    (DateTime.UtcNow.Ticks - _lastMovementHeadingTicks) > MovementHeadingTimeoutTicks;
+                if (movementStale)
+                {
+                    _headingTarget = h;
+                    if (double.IsNaN(_headingDisplay)) _headingDisplay = h;
+                }
+            });
+        }
+
+        private void StartHeadingTimer()
+        {
+            if (_headingTimer != null) return;
+            _headingTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+            _headingTimer.Tick += HeadingTimer_Tick;
+            _headingTimer.Start();
+        }
+
+        private void HeadingTimer_Tick(object sender, object e)
+        {
+            if (double.IsNaN(_headingTarget)) return;
+            if (double.IsNaN(_headingDisplay))
+            {
+                _headingDisplay = _headingTarget;
+                MapCanvas.Invalidate();
+                return;
+            }
+
+            // Shortest-path rotation toward the target, handling 0/360 wraparound
+            double diff = _headingTarget - _headingDisplay;
+            while (diff > 180) diff -= 360;
+            while (diff < -180) diff += 360;
+
+            if (Math.Abs(diff) < 0.5)
+            {
+                if (_headingDisplay != _headingTarget)
+                {
+                    _headingDisplay = _headingTarget;
+                    MapCanvas.Invalidate();
+                }
+                return;
+            }
+
+            _headingDisplay += diff * HeadingSmoothFactor;
+            if (_headingDisplay < 0) _headingDisplay += 360;
+            else if (_headingDisplay >= 360) _headingDisplay -= 360;
+            MapCanvas.Invalidate();
         }
 
         /// <summary>
@@ -2769,6 +2870,18 @@ namespace WinMaps
             _gpsTargetLat = newLat;
             _gpsTargetLon = newLon;
             _gpsTargetAccuracy = newAcc;
+
+            // Facing direction: prefer course-over-ground, but only when actually moving —
+            // GPS heading is noise when stationary. When not moving, the compass takes over.
+            double speed = (coord.Speed.HasValue && !double.IsNaN(coord.Speed.Value))
+                ? coord.Speed.Value : double.NaN;
+            if (coord.Heading.HasValue && !double.IsNaN(coord.Heading.Value) &&
+                !double.IsNaN(speed) && speed >= MovementSpeedThreshold)
+            {
+                _headingTarget = coord.Heading.Value;
+                _lastMovementHeadingTicks = DateTime.UtcNow.Ticks;
+                if (double.IsNaN(_headingDisplay)) _headingDisplay = _headingTarget;
+            }
 
             // First fix: snap immediately, no animation
             if (double.IsNaN(_gpsLat))
