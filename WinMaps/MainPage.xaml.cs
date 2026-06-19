@@ -82,6 +82,13 @@ namespace WinMaps
         private DispatcherTimer _gpsAnimTimer;
         private const double GpsSmoothFactor = 0.25; // lerp fraction per tick (higher = faster snap)
 
+        // Keep-display-on while GPS tracking (user setting, default on)
+        private bool _keepDisplayOn = true;
+        private Windows.System.Display.DisplayRequest _displayRequest;
+        private bool _displayActive = false;
+        // Remembers whether GPS was running so it can resume when the app returns to foreground
+        private bool _gpsWasActive = false;
+
         // Pan state
         private bool _isPanning = false;
         private Point _panStart;
@@ -114,11 +121,13 @@ namespace WinMaps
             _browseStack = new Stack<string>();
             _worldMapStack = new Stack<string>();
             _currentTheme = LoadSavedTheme();
+            _keepDisplayOn = LoadKeepDisplayOn();
 
             this.Loaded += MainPage_Loaded;
             this.Unloaded += MainPage_Unloaded;
             Application.Current.Suspending += OnAppSuspending;
             Application.Current.Resuming += OnAppResuming;
+            Window.Current.VisibilityChanged += OnWindowVisibilityChanged;
 
             RestoreViewport();
             ApplyThemeBackground();
@@ -196,6 +205,14 @@ namespace WinMaps
 
         private void OnAppSuspending(object sender, Windows.ApplicationModel.SuspendingEventArgs e)
         {
+            // Stop GPS and release the display lock so we don't drain the battery
+            // while the app is suspended.
+            if (_geolocator != null)
+            {
+                _gpsWasActive = true;
+                StopGps();
+            }
+
             // Checkpoint the WAL so that if the OS terminates the suspended process,
             // the next startup doesn't have to replay a large WAL file.
             SaveViewport();
@@ -207,12 +224,36 @@ namespace WinMaps
 
         private void OnAppResuming(object sender, object e)
         {
-            // Re-initialize GPS after suspend — the geolocator stops delivering updates
-            if (_geolocator != null)
-            {
-                _geolocator.PositionChanged -= OnGpsPositionChanged;
-                _geolocator = null;
+            // Re-acquire GPS after resume if it was active before suspending.
+            if (_gpsWasActive)
                 StartGps();
+        }
+
+        /// <summary>
+        /// Stops GPS tracking and releases the display lock when the app is no longer
+        /// visible (minimized via back button, screen locked, etc.), and resumes when
+        /// it becomes visible again. This prevents GPS from draining the battery in
+        /// the background.
+        /// </summary>
+        private void OnWindowVisibilityChanged(object sender,
+            Windows.UI.Core.VisibilityChangedEventArgs e)
+        {
+            if (e.Visible)
+            {
+                if (_gpsWasActive && _geolocator == null)
+                    StartGps();
+            }
+            else
+            {
+                if (_geolocator != null)
+                {
+                    _gpsWasActive = true;
+                    StopGps();
+                }
+                else
+                {
+                    _gpsWasActive = false;
+                }
             }
         }
 
@@ -220,9 +261,11 @@ namespace WinMaps
         {
             Application.Current.Suspending -= OnAppSuspending;
             Application.Current.Resuming -= OnAppResuming;
+            Window.Current.VisibilityChanged -= OnWindowVisibilityChanged;
             Windows.UI.Core.SystemNavigationManager.GetForCurrentView().BackRequested -= OnBackRequested;
             SaveViewport();
             _cts?.Cancel();
+            ReleaseDisplayRequest();
             _geolocator = null;
             _db?.Dispose();
             MapCanvas.RemoveFromVisualTree();
@@ -2264,6 +2307,9 @@ namespace WinMaps
         {
             PreferencesPanel.Visibility = Visibility.Visible;
 
+            // Reflect current setting without re-triggering the toggle handler's side effects
+            TglKeepDisplayOn.IsOn = _keepDisplayOn;
+
             // App version from package identity
             var ver = Windows.ApplicationModel.Package.Current.Id.Version;
             TxtAppVersion.Text = $"WinMaps {ver.Major}.{ver.Minor}.{ver.Build}.{ver.Revision}";
@@ -2413,6 +2459,26 @@ namespace WinMaps
         private void SaveTheme(string themeId)
         {
             ApplicationData.Current.LocalSettings.Values["theme_id"] = themeId;
+        }
+
+        private bool LoadKeepDisplayOn()
+        {
+            var settings = ApplicationData.Current.LocalSettings;
+            if (settings.Values.ContainsKey("keep_display_on"))
+                return (bool)settings.Values["keep_display_on"];
+            return true; // enabled by default
+        }
+
+        private void SaveKeepDisplayOn(bool value)
+        {
+            ApplicationData.Current.LocalSettings.Values["keep_display_on"] = value;
+        }
+
+        private void TglKeepDisplayOn_Toggled(object sender, RoutedEventArgs e)
+        {
+            _keepDisplayOn = TglKeepDisplayOn.IsOn;
+            SaveKeepDisplayOn(_keepDisplayOn);
+            UpdateDisplayRequest();
         }
 
         private void ApplyThemeBackground()
@@ -2579,6 +2645,7 @@ namespace WinMaps
             GpsIcon.Foreground = _followGps
                 ? new SolidColorBrush(Colors.Gold)
                 : new SolidColorBrush(Colors.White);
+            UpdateDisplayRequest();
         }
 
         private void BtnGps_Click(object sender, RoutedEventArgs e)
@@ -2608,6 +2675,10 @@ namespace WinMaps
                     return;
                 }
 
+                // Clean restart — drop any existing geolocator to avoid duplicate subscriptions
+                if (_geolocator != null)
+                    _geolocator.PositionChanged -= OnGpsPositionChanged;
+
                 _geolocator = new Geolocator
                 {
                     DesiredAccuracy = PositionAccuracy.High,
@@ -2616,14 +2687,69 @@ namespace WinMaps
                 };
 
                 _geolocator.PositionChanged += OnGpsPositionChanged;
+                _gpsWasActive = true;
 
                 var pos = await _geolocator.GetGeopositionAsync();
                 UpdateGpsPosition(pos.Coordinate);
+                UpdateDisplayRequest();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"GPS error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Stops GPS tracking: unsubscribes the geolocator, stops the smoothing timer,
+        /// and releases the display lock. Leaves _followGps untouched so tracking can
+        /// resume in the same mode when the app returns to the foreground.
+        /// </summary>
+        private void StopGps()
+        {
+            if (_geolocator != null)
+            {
+                _geolocator.PositionChanged -= OnGpsPositionChanged;
+                _geolocator = null;
+            }
+            if (_gpsAnimTimer != null)
+            {
+                _gpsAnimTimer.Stop();
+                _gpsAnimTimer = null;
+            }
+            ReleaseDisplayRequest();
+        }
+
+        /// <summary>
+        /// Activates a display request (keeping the screen on) when the user setting is
+        /// enabled and we are actively following the GPS position; releases it otherwise.
+        /// </summary>
+        private void UpdateDisplayRequest()
+        {
+            if (_keepDisplayOn && _followGps && _geolocator != null)
+                ActivateDisplayRequest();
+            else
+                ReleaseDisplayRequest();
+        }
+
+        private void ActivateDisplayRequest()
+        {
+            if (_displayActive) return;
+            try
+            {
+                if (_displayRequest == null)
+                    _displayRequest = new Windows.System.Display.DisplayRequest();
+                _displayRequest.RequestActive();
+                _displayActive = true;
+            }
+            catch { }
+        }
+
+        private void ReleaseDisplayRequest()
+        {
+            if (!_displayActive) return;
+            try { _displayRequest?.RequestRelease(); }
+            catch { }
+            _displayActive = false;
         }
 
         private async void OnGpsPositionChanged(Geolocator sender, PositionChangedEventArgs args)
@@ -2696,6 +2822,7 @@ namespace WinMaps
                 {
                     _viewport.CenterLat = _gpsLat;
                     _viewport.CenterLon = _gpsLon;
+                    EnsureGpsCache();
                 }
                 MapCanvas.Invalidate();
                 return;
@@ -2709,9 +2836,33 @@ namespace WinMaps
             {
                 _viewport.CenterLat = _gpsLat;
                 _viewport.CenterLon = _gpsLon;
+                EnsureGpsCache();
             }
 
             MapCanvas.Invalidate();
+        }
+
+        /// <summary>
+        /// Keeps the map cache loaded as the viewport follows the GPS position while driving.
+        /// EnsureCacheAsync returns immediately when the viewport is still within the cached
+        /// bounds, so this is cheap to call on every animation tick; it only queries the DB
+        /// when the moving viewport approaches the edge of the cached region. Without this,
+        /// the viewport drifts out of the cache and roads stop rendering (eventually blanking
+        /// the whole screen) because the cache was only refreshed on manual pan/zoom.
+        /// </summary>
+        private async void EnsureGpsCache()
+        {
+            if (_renderer == null) return;
+            try
+            {
+                await _renderer.EnsureCacheAsync();
+                MapCanvas.Invalidate();
+            }
+            catch (Exception ex)
+            {
+                _lastRenderError = ex.ToString();
+                Log($"EnsureGpsCache error: {ex}");
+            }
         }
 
         // ---- Viewport persistence ----

@@ -483,6 +483,30 @@
             <ScrollViewer Grid.Row="1">
                 <StackPanel Padding="20,16">
 
+                    <!-- Tracking -->
+                    <TextBlock Text="TRACKING" FontSize="11" FontWeight="SemiBold"
+                               Opacity="0.5" Margin="0,0,0,12" CharacterSpacing="100" />
+
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="Keep display on" FontSize="15" />
+                            <TextBlock Text="Prevents the screen from turning off while following your position"
+                                       FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="TglKeepDisplayOn" Grid.Column="1"
+                                      IsOn="True" MinWidth="0"
+                                      VerticalAlignment="Center"
+                                      Toggled="TglKeepDisplayOn_Toggled" />
+                    </Grid>
+
+                    <!-- Divider -->
+                    <Rectangle Height="1" Margin="0,12,0,16"
+                               Fill="{ThemeResource SystemControlForegroundBaseLowBrush}" />
+
                     <!-- Temp files -->
                     <TextBlock Text="TEMPORARY FILES" FontSize="11" FontWeight="SemiBold"
                                Opacity="0.5" Margin="0,0,0,12" CharacterSpacing="100" />
