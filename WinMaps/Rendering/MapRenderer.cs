@@ -724,14 +724,14 @@ namespace WinMaps.Rendering
             Color textColor = useLight ? _theme.PlaceLabelColorLight : _theme.PlaceLabelColor;
             Color haloColor = _theme.PlaceLabelHaloColor;
 
-            // Sort by importance so cities win deconfliction over towns, etc.
+            // Sort by importance so cities draw on top of towns, etc.
             _cachedPlaces.Sort((a, b) => PlaceTypeOrder(a.PlaceType).CompareTo(PlaceTypeOrder(b.PlaceType)));
 
-            // Grid-based label deconfliction
-            int cellSize = 140;
-            int cols = (int)(_viewport.ScreenWidth / cellSize) + 1;
-            int rows = (int)(_viewport.ScreenHeight / cellSize) + 1;
-            var occupied = new bool[cols * rows];
+            // Note: place labels (cities/towns/villages) are intentionally NOT deconflicted.
+            // They are sparse enough that overlap is rare, and grid-based culling caused
+            // labels to flicker while driving — each cache reload returns places in a
+            // different order, so the grid would pick different "winners" each frame.
+            // Only POIs use deconfliction (see DrawPois).
 
             foreach (var place in _cachedPlaces)
             {
@@ -750,14 +750,6 @@ namespace WinMaps.Rendering
                 if (x < -60 || x > _viewport.ScreenWidth + 60 ||
                     y < -30 || y > _viewport.ScreenHeight + 30)
                     continue;
-
-                // Check deconfliction grid
-                int col = (int)(x / cellSize);
-                int row = (int)(y / cellSize);
-                if (col < 0 || col >= cols || row < 0 || row >= rows) continue;
-                int cellIdx = row * cols + col;
-                if (occupied[cellIdx]) continue;
-                occupied[cellIdx] = true;
 
                 using (var textFormat = new CanvasTextFormat
                 {
