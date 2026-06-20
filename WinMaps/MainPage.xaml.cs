@@ -82,6 +82,10 @@ namespace WinMaps
         private DispatcherTimer _gpsAnimTimer;
         private const double GpsSmoothFactor = 0.25; // lerp fraction per tick (higher = faster snap)
 
+        // Blinks the GPS icon white while a fix is still being acquired
+        private DispatcherTimer _gpsBlinkTimer;
+        private bool _gpsBlinkOn = false;
+
         // Facing direction (degrees clockwise from north). NaN = unknown.
         // Source priority: GPS course-over-ground while moving, else the compass sensor.
         private Windows.Devices.Sensors.Compass _compass;
@@ -99,6 +103,9 @@ namespace WinMaps
         private bool _displayActive = false;
         // Remembers whether GPS was running so it can resume when the app returns to foreground
         private bool _gpsWasActive = false;
+
+        // Delete the downloaded Geofabrik PBF file after a successful import (user setting, default off)
+        private bool _deletePbfAfterImport = false;
 
         // Pan state
         private bool _isPanning = false;
@@ -133,6 +140,7 @@ namespace WinMaps
             _worldMapStack = new Stack<string>();
             _currentTheme = LoadSavedTheme();
             _keepDisplayOn = LoadKeepDisplayOn();
+            _deletePbfAfterImport = LoadDeletePbfAfterImport();
 
             this.Loaded += MainPage_Loaded;
             this.Unloaded += MainPage_Unloaded;
@@ -355,7 +363,11 @@ namespace WinMaps
                 }
             }
 
-            // No maps at all — show map manager with browse view
+            // No maps at all — show map manager with browse view.
+            // Start GPS now so the permission prompt appears on first launch and a fix
+            // is acquired; UpdateGpsPosition will add the "Current region" suggestion to
+            // the (already open) browse list as soon as the fix arrives.
+            StartGps();
             ShowMapManager(startInBrowse: true);
         }
 
@@ -2187,6 +2199,19 @@ namespace WinMaps
             SaveMapName(countryKey, countryDisplayName);
             SetActiveMapId(countryKey);
             AddInstalledRegion(region.Id, countryKey);
+
+            // Optionally remove the raw Geofabrik PBF now that it has been imported
+            if (_deletePbfAfterImport)
+            {
+                try
+                {
+                    if (File.Exists(pbfPath)) File.Delete(pbfPath);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to delete PBF after import: {ex.Message}");
+                }
+            }
         }
 
         /// <summary>
@@ -2320,6 +2345,7 @@ namespace WinMaps
 
             // Reflect current setting without re-triggering the toggle handler's side effects
             TglKeepDisplayOn.IsOn = _keepDisplayOn;
+            TglDeletePbfAfterImport.IsOn = _deletePbfAfterImport;
 
             // App version from package identity
             var ver = Windows.ApplicationModel.Package.Current.Id.Version;
@@ -2492,6 +2518,25 @@ namespace WinMaps
             UpdateDisplayRequest();
         }
 
+        private bool LoadDeletePbfAfterImport()
+        {
+            var settings = ApplicationData.Current.LocalSettings;
+            if (settings.Values.ContainsKey("delete_pbf_after_import"))
+                return (bool)settings.Values["delete_pbf_after_import"];
+            return false; // keep raw maps by default
+        }
+
+        private void SaveDeletePbfAfterImport(bool value)
+        {
+            ApplicationData.Current.LocalSettings.Values["delete_pbf_after_import"] = value;
+        }
+
+        private void TglDeletePbfAfterImport_Toggled(object sender, RoutedEventArgs e)
+        {
+            _deletePbfAfterImport = TglDeletePbfAfterImport.IsOn;
+            SaveDeletePbfAfterImport(_deletePbfAfterImport);
+        }
+
         private void ApplyThemeBackground()
         {
             MapCanvas.ClearColor = _currentTheme.Background;
@@ -2653,10 +2698,58 @@ namespace WinMaps
 
         private void UpdateGpsIcon()
         {
-            GpsIcon.Foreground = _followGps
-                ? new SolidColorBrush(Colors.Gold)
-                : new SolidColorBrush(Colors.White);
+            // Three visual states:
+            //   Gold (solid)   : fix acquired and actively following the position
+            //   White (blink)  : GPS is running but no fix yet (still acquiring)
+            //   White (solid)  : have a fix but not following, or GPS is off
+            bool hasFix = !double.IsNaN(_gpsLat);
+            bool acquiring = _geolocator != null && !hasFix;
+
+            if (_followGps)
+            {
+                StopGpsBlink();
+                GpsIcon.Foreground = new SolidColorBrush(Colors.Gold);
+            }
+            else if (acquiring)
+            {
+                StartGpsBlink();
+            }
+            else
+            {
+                StopGpsBlink();
+                GpsIcon.Foreground = new SolidColorBrush(Colors.White);
+            }
+
             UpdateDisplayRequest();
+        }
+
+        private void StartGpsBlink()
+        {
+            if (_gpsBlinkTimer == null)
+            {
+                _gpsBlinkTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                _gpsBlinkTimer.Tick += GpsBlinkTimer_Tick;
+                _gpsBlinkOn = true;
+                _gpsBlinkTimer.Start();
+            }
+            // Apply the current blink phase immediately
+            GpsIcon.Foreground = new SolidColorBrush(_gpsBlinkOn ? Colors.White : Colors.Transparent);
+        }
+
+        private void StopGpsBlink()
+        {
+            if (_gpsBlinkTimer != null)
+            {
+                _gpsBlinkTimer.Stop();
+                _gpsBlinkTimer = null;
+            }
+            _gpsBlinkOn = false;
+        }
+
+        private void GpsBlinkTimer_Tick(object sender, object e)
+        {
+            _gpsBlinkOn = !_gpsBlinkOn;
+            GpsIcon.Foreground = new SolidColorBrush(_gpsBlinkOn ? Colors.White : Colors.Transparent);
         }
 
         private void BtnGps_Click(object sender, RoutedEventArgs e)
@@ -2700,6 +2793,9 @@ namespace WinMaps
                 _geolocator.PositionChanged += OnGpsPositionChanged;
                 _gpsWasActive = true;
 
+                // Show the "acquiring fix" blink immediately until the first fix arrives
+                UpdateGpsIcon();
+
                 StartCompass();
                 StartHeadingTimer();
 
@@ -2725,6 +2821,7 @@ namespace WinMaps
                 _geolocator.PositionChanged -= OnGpsPositionChanged;
                 _geolocator = null;
             }
+            StopGpsBlink();
             if (_gpsAnimTimer != null)
             {
                 _gpsAnimTimer.Stop();
@@ -2739,6 +2836,9 @@ namespace WinMaps
             _headingDisplay = double.NaN;
             _headingTarget = double.NaN;
             ReleaseDisplayRequest();
+
+            // Restore a solid icon color (the blink may have left it transparent)
+            UpdateGpsIcon();
         }
 
         // ---- Facing direction (compass fallback + heading smoothing) ----
@@ -2867,6 +2967,8 @@ namespace WinMaps
             double newLon = coord.Point.Position.Longitude;
             double newAcc = coord.Accuracy;
 
+            bool wasFirstFix = double.IsNaN(_gpsLat);
+
             _gpsTargetLat = newLat;
             _gpsTargetLon = newLon;
             _gpsTargetAccuracy = newAcc;
@@ -2906,6 +3008,26 @@ namespace WinMaps
                 _gpsAnimTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
                 _gpsAnimTimer.Tick += GpsAnimTimer_Tick;
                 _gpsAnimTimer.Start();
+            }
+
+            // On the first fix, refresh the Add Map browse list (if open at the root level)
+            // so the "Current region" suggestion appears without the user reopening it.
+            if (wasFirstFix)
+                RefreshBrowseForGpsFix();
+        }
+
+        /// <summary>
+        /// Re-renders the Add Map browse list when it is open at the root level, so a newly
+        /// acquired GPS fix dynamically adds the "Current region" suggestion at the top.
+        /// Does nothing if the user has drilled into a sub-region, to avoid disrupting navigation.
+        /// </summary>
+        private void RefreshBrowseForGpsFix()
+        {
+            if (MapManagerPanel.Visibility == Visibility.Visible &&
+                BrowseView.Visibility == Visibility.Visible &&
+                _browseCurrentParent == null)
+            {
+                ShowBrowseLevel(null);
             }
         }
 

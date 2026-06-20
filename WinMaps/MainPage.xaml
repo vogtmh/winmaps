@@ -517,6 +517,22 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="Delete maps after import" FontSize="15" />
+                            <TextBlock Text="Removes the downloaded Geofabrik PBF file once it has been imported"
+                                       FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="TglDeletePbfAfterImport" Grid.Column="1"
+                                      IsOn="False" MinWidth="0"
+                                      VerticalAlignment="Center"
+                                      Toggled="TglDeletePbfAfterImport_Toggled" />
+                    </Grid>
+
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
                             <TextBlock Text="Downloaded PBF files" FontSize="15" />
                             <TextBlock x:Name="TxtPbfSize" Text="Calculating…"
                                        FontSize="12" Opacity="0.6" />
