@@ -53,6 +53,17 @@
             <FontIcon Glyph="&#xE700;" FontFamily="Segoe MDL2 Assets" FontSize="18" />
         </Button>
 
+        <!-- "Download this region" button (bottom-left, above the menu button).
+             Shown only when the screen center is over an area with no downloaded map. -->
+        <Button x:Name="BtnDownloadHere" Width="44" Height="44"
+                HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                Margin="12,0,0,62" Visibility="Collapsed"
+                Click="BtnDownloadHere_Click"
+                Foreground="White"
+                Background="{ThemeResource SystemControlBackgroundAccentBrush}">
+            <FontIcon Glyph="&#xE826;" FontFamily="Segoe MDL2 Assets" FontSize="18" />
+        </Button>
+
         <!-- Status bar (top) -->
         <Grid HorizontalAlignment="Stretch" VerticalAlignment="Top"
               Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}"

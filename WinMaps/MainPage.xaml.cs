@@ -116,6 +116,11 @@ namespace WinMaps
         private string _activeMapId;
         private MapQuality _importQuality = MapQuality.Original;
 
+        // "Download this region" button (offered when the screen center is over an
+        // undownloaded area). Debounced so it only re-evaluates after a pan settles.
+        private GeofabrikRegion _downloadHereRegion;
+        private DispatcherTimer _downloadHereTimer;
+
         // Map manager
         private GeofabrikIndex _geofabrikIndex;
         private GeofabrikGeoIndex _geoIndex;
@@ -2588,6 +2593,7 @@ namespace WinMaps
                 TxtZoom.Text = $"Z{_viewport.Zoom:F0}";
                 TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
                 SaveViewport();
+                ScheduleDownloadHereCheck();
 
                 // Then reload data in the background and repaint when ready
                 if (_renderer != null)
@@ -2608,6 +2614,126 @@ namespace WinMaps
             _viewport.ScreenWidth = e.NewSize.Width;
             _viewport.ScreenHeight = e.NewSize.Height;
             RedrawMap();
+        }
+
+        // ---- "Download this region" suggestion ----
+
+        /// <summary>
+        /// Debounced trigger: re-evaluates the "download this region" button shortly after
+        /// the view stops moving, so the check never runs on every pan/zoom frame.
+        /// </summary>
+        private void ScheduleDownloadHereCheck()
+        {
+            if (_downloadHereTimer == null)
+            {
+                _downloadHereTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+                _downloadHereTimer.Tick += (s, e) =>
+                {
+                    _downloadHereTimer.Stop();
+                    UpdateDownloadHereButton();
+                };
+            }
+            _downloadHereTimer.Stop();
+            _downloadHereTimer.Start();
+        }
+
+        /// <summary>
+        /// Shows the accent "download" button when the screen center sits over a region that
+        /// has not been downloaded yet; hides it otherwise. Works fully offline once the
+        /// Geofabrik index has been cached (the bboxes are a bundled asset). If the index is
+        /// missing and the device is offline, the button stays hidden.
+        /// </summary>
+        private async void UpdateDownloadHereButton()
+        {
+            try
+            {
+                // Never offer downloads while a panel/overlay is up or an import is running
+                if (OverlayPanel.Visibility == Visibility.Visible ||
+                    MapManagerPanel.Visibility == Visibility.Visible)
+                {
+                    HideDownloadHere();
+                    return;
+                }
+
+                // Ensure the catalog hierarchy is available. LoadAsync loads from the local
+                // cache when present (offline-safe); only when missing does it hit the network.
+                // If we're offline with no cache it throws → button stays hidden.
+                if (!_geofabrikIndex.IsLoaded)
+                {
+                    try { await _geofabrikIndex.LoadAsync(); }
+                    catch { HideDownloadHere(); return; }
+                }
+                // Bboxes come from a bundled asset (always available, instant after first load)
+                await _geofabrikIndex.LoadBboxesAsync();
+
+                double lat = _viewport.CenterLat;
+                double lon = _viewport.CenterLon;
+
+                // Already covered by a downloaded region → nothing to offer
+                if (IsPointInstalled(lat, lon))
+                {
+                    HideDownloadHere();
+                    return;
+                }
+
+                // Smallest catalog region whose bbox contains the center (we merge regions
+                // into countries on import anyway, so the smallest part is the right offer)
+                var region = _geofabrikIndex.FindSmallestContaining(lat, lon);
+                if (region == null) // ocean / outside catalog coverage
+                {
+                    HideDownloadHere();
+                    return;
+                }
+
+                _downloadHereRegion = region;
+                BtnDownloadHere.Visibility = Visibility.Visible;
+            }
+            catch
+            {
+                HideDownloadHere();
+            }
+        }
+
+        private void HideDownloadHere()
+        {
+            _downloadHereRegion = null;
+            BtnDownloadHere.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>
+        /// True if the point falls inside the bbox of any already-installed region
+        /// (covers every downloaded map, not just the active one).
+        /// </summary>
+        private bool IsPointInstalled(double lat, double lon)
+        {
+            foreach (var id in GetInstalledRegionIds())
+            {
+                var r = _geofabrikIndex.GetRegion(id);
+                if (r == null || !r.HasBbox) continue;
+                if (lat >= r.BboxMinLat && lat <= r.BboxMaxLat &&
+                    lon >= r.BboxMinLon && lon <= r.BboxMaxLon)
+                    return true;
+            }
+            return false;
+        }
+
+        private async void BtnDownloadHere_Click(object sender, RoutedEventArgs e)
+        {
+            var region = _downloadHereRegion;
+            if (region == null) return;
+
+            var dialog = new MessageDialog(
+                $"Do you want to download the map for \"{region.Name}\"?", "Download Map");
+            dialog.Commands.Add(new UICommand("Download"));
+            dialog.Commands.Add(new UICommand("Cancel"));
+            dialog.DefaultCommandIndex = 0;
+            dialog.CancelCommandIndex = 1;
+
+            var result = await dialog.ShowAsync();
+            if (result.Label != "Download") return;
+
+            HideDownloadHere();
+            DownloadRegion(region.Id); // reuses the existing quality-prompt + download/import flow
         }
 
         // ---- Touch / Mouse Input ----
