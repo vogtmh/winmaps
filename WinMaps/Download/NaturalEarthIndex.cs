@@ -77,6 +77,45 @@ namespace WinMaps.Download
             return null;
         }
 
+        /// <summary>
+        /// Returns the country whose polygon actually contains the given point, or null if the
+        /// point is in the ocean / outside all loaded countries. Uses even-odd ray casting over
+        /// each country's outer rings — this is far more reliable than a rectangular bounding-box
+        /// test for non-rectangular countries (e.g. Laos vs. Thailand near Bangkok).
+        /// </summary>
+        public NaturalEarthCountry GetCountryAt(double lat, double lon)
+        {
+            if (_countries == null) return null;
+
+            foreach (var country in _countries)
+            {
+                if (country.Geometry == null) continue;
+                foreach (var ring in country.Geometry)
+                {
+                    if (RingContains(ring, lat, lon))
+                        return country;
+                }
+            }
+            return null;
+        }
+
+        // Standard even-odd ray-casting point-in-polygon test.
+        private static bool RingContains(List<(double Lat, double Lon)> ring, double lat, double lon)
+        {
+            bool inside = false;
+            int n = ring.Count;
+            for (int i = 0, j = n - 1; i < n; j = i++)
+            {
+                double yi = ring[i].Lat, xi = ring[i].Lon;
+                double yj = ring[j].Lat, xj = ring[j].Lon;
+
+                bool crosses = ((yi > lat) != (yj > lat)) &&
+                               (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+                if (crosses) inside = !inside;
+            }
+            return inside;
+        }
+
         private void Parse(string json)
         {
             _countries = new List<NaturalEarthCountry>();

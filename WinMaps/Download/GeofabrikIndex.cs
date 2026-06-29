@@ -224,6 +224,18 @@ namespace WinMaps.Download
         /// </summary>
         public GeofabrikRegion FindSmallestContaining(double lat, double lon)
         {
+            return FindSmallestContaining(lat, lon, null);
+        }
+
+        /// <summary>
+        /// Like <see cref="FindSmallestContaining(double, double)"/> but, when
+        /// <paramref name="restrictToCountryId"/> is non-null, only considers regions that belong
+        /// to that country. Country bounding boxes overlap heavily (e.g. Laos's rectangular bbox
+        /// clips Bangkok), so the caller resolves the true country via polygon containment first
+        /// and passes it here to avoid suggesting a neighbouring country.
+        /// </summary>
+        public GeofabrikRegion FindSmallestContaining(double lat, double lon, string restrictToCountryId)
+        {
             if (_regions == null) return null;
 
             GeofabrikRegion best = null;
@@ -234,6 +246,7 @@ namespace WinMaps.Download
                 if (!region.HasBbox) continue;
                 if (lat < region.BboxMinLat || lat > region.BboxMaxLat) continue;
                 if (lon < region.BboxMinLon || lon > region.BboxMaxLon) continue;
+                if (restrictToCountryId != null && GetCountryId(region.Id) != restrictToCountryId) continue;
 
                 double area = (region.BboxMaxLat - region.BboxMinLat) *
                               (region.BboxMaxLon - region.BboxMinLon);

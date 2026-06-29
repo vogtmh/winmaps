@@ -2740,6 +2740,28 @@ namespace WinMaps
                     return;
                 }
 
+                // Country bounding boxes overlap heavily (e.g. Laos's rectangular bbox clips
+                // Bangkok), so the smallest-bbox pick can name a neighbouring country. Confirm
+                // the real country via polygon containment and re-pick within it when possible.
+                try
+                {
+                    if (!_naturalEarthIndex.IsLoaded)
+                        await _naturalEarthIndex.LoadAsync();
+
+                    var country = _naturalEarthIndex.GetCountryAt(lat, lon);
+                    if (country != null && !string.IsNullOrEmpty(country.IsoA2))
+                    {
+                        var countryRegion = _geofabrikIndex.GetRegionByIso(country.IsoA2);
+                        if (countryRegion != null)
+                        {
+                            string countryId = _geofabrikIndex.GetCountryId(countryRegion.Id);
+                            var refined = _geofabrikIndex.FindSmallestContaining(lat, lon, countryId);
+                            if (refined != null) region = refined;
+                        }
+                    }
+                }
+                catch { /* Natural Earth unavailable — keep the bbox-only pick */ }
+
                 _downloadHereRegion = region;
                 BtnDownloadHere.Visibility = Visibility.Visible;
             }
