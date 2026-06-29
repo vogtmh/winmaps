@@ -3,16 +3,21 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Geometry;
+using Microsoft.Graphics.Canvas.Text;
+using Windows.Data.Json;
+using Windows.Storage;
+using Windows.UI;
 using WinMaps.Download;
 
 namespace WinMaps.Rendering
 {
     /// <summary>
-    /// Draws a coarse world basemap (filled landmasses + thin country borders) as a fallback
-    /// for areas with no downloaded map. Uses the bundled Natural Earth 110m country polygons,
-    /// projected with the live map's Mercator viewport. Rings are culled by geographic bounding
-    /// box and the projected geometry is cached per viewport so panning stays cheap on low-end
-    /// devices (Lumia 735/950 XL).
+    /// Draws a coarse world basemap as a fallback for areas with no downloaded map:
+    /// filled landmasses + thin country borders (bundled Natural Earth 110m country polygons)
+    /// plus populated-place dots and labels (compact Natural Earth 10m cities/towns asset).
+    /// Everything is projected with the live map's Mercator viewport. Land rings are culled by
+    /// geographic bounding box and the projected geometry is cached per viewport, and places are
+    /// filtered by scalerank-vs-zoom, so panning stays cheap on low-end devices (Lumia 735/950 XL).
     /// </summary>
     internal class WorldBasemapRenderer
     {
@@ -23,7 +28,16 @@ namespace WinMaps.Rendering
             public double MinLat, MaxLat, MinLon, MaxLon;
         }
 
+        private struct Place
+        {
+            public string Name;
+            public double Lat;
+            public double Lon;
+            public int ScaleRank; // 0 = largest cities, 10 = smallest towns
+        }
+
         private List<Ring> _rings;
+        private List<Place> _places;
         private bool _loading;
 
         public bool IsReady { get; private set; }
@@ -79,6 +93,31 @@ namespace WinMaps.Rendering
             }
             catch { /* asset missing/unreadable — basemap stays disabled */ }
             finally { _loading = false; }
+
+            // Populated places are optional: a failure here must not disable the land basemap.
+            try
+            {
+                var file = await StorageFile.GetFileFromApplicationUriAsync(
+                    new Uri("ms-appx:///Assets/NaturalEarth/populated-places.json"));
+                string json = await FileIO.ReadTextAsync(file);
+                var arr = JsonArray.Parse(json);
+
+                var places = new List<Place>(arr.Count);
+                foreach (var item in arr)
+                {
+                    var a = item.GetArray();
+                    if (a.Count < 4) continue;
+                    places.Add(new Place
+                    {
+                        Name = a.GetStringAt(0),
+                        Lon = a.GetNumberAt(1),
+                        Lat = a.GetNumberAt(2),
+                        ScaleRank = (int)a.GetNumberAt(3)
+                    });
+                }
+                _places = places;
+            }
+            catch { /* places asset missing — land basemap still renders */ }
         }
 
         /// <summary>
@@ -93,10 +132,113 @@ namespace WinMaps.Rendering
             ds.Clear(theme.WaterColor);
 
             EnsureGeometry(rc, vp);
-            if (_cachedGeo == null) return;
+            if (_cachedGeo != null)
+            {
+                ds.FillGeometry(_cachedGeo, theme.Background);
+                ds.DrawGeometry(_cachedGeo, theme.PlaceLabelColorLight, 0.5f);
+            }
 
-            ds.FillGeometry(_cachedGeo, theme.Background);
-            ds.DrawGeometry(_cachedGeo, theme.PlaceLabelColorLight, 0.5f);
+            DrawPlaces(ds, vp, theme);
+        }
+
+        /// <summary>
+        /// Draws populated-place dots + labels. Places are filtered by scalerank vs zoom so that
+        /// only major cities show when zoomed out, with smaller towns appearing as you zoom in.
+        /// At the default close zoom this gives users "something" (the nearest city/town) even
+        /// when no detailed map is downloaded for the area.
+        /// </summary>
+        private void DrawPlaces(CanvasDrawingSession ds, MapViewport vp, MapTheme theme)
+        {
+            if (_places == null || _places.Count == 0) return;
+
+            int maxSr = MaxScaleRank(vp.Zoom);
+
+            var (minLat, maxLat, minLon, maxLon) = vp.GetBounds();
+            bool lonWraps = minLon > maxLon; // viewport crosses the antimeridian
+
+            Color textColor = theme.PlaceLabelColor;
+            Color haloColor = theme.PlaceLabelHaloColor;
+            Color dotColor = theme.PlaceLabelColorLight;
+
+            // Reuse one text format per size bucket instead of allocating per place.
+            var fmt = new CanvasTextFormat[4];
+            try
+            {
+                for (int b = 0; b < 4; b++)
+                {
+                    fmt[b] = new CanvasTextFormat
+                    {
+                        FontSize = BucketFont(b),
+                        HorizontalAlignment = CanvasHorizontalAlignment.Center,
+                        VerticalAlignment = CanvasVerticalAlignment.Center,
+                        FontWeight = (b == 0)
+                            ? Windows.UI.Text.FontWeights.SemiBold
+                            : Windows.UI.Text.FontWeights.Normal
+                    };
+                }
+
+                foreach (var pl in _places)
+                {
+                    if (pl.ScaleRank > maxSr) continue;
+
+                    if (!lonWraps)
+                    {
+                        if (pl.Lat < minLat || pl.Lat > maxLat) continue;
+                        if (pl.Lon < minLon || pl.Lon > maxLon) continue;
+                    }
+
+                    var (x, y) = vp.GeoToScreen(pl.Lat, pl.Lon);
+                    if (x < -80 || x > vp.ScreenWidth + 80 ||
+                        y < -40 || y > vp.ScreenHeight + 40)
+                        continue;
+
+                    // Place marker dot
+                    ds.FillCircle(x, y, 3f, dotColor);
+
+                    var tf = fmt[Bucket(pl.ScaleRank)];
+                    float ly = y + 9f; // label sits just below the dot
+
+                    // Text halo via offset copies, matching the detailed-map label style.
+                    ds.DrawText(pl.Name, x - 1, ly, haloColor, tf);
+                    ds.DrawText(pl.Name, x + 1, ly, haloColor, tf);
+                    ds.DrawText(pl.Name, x, ly - 1, haloColor, tf);
+                    ds.DrawText(pl.Name, x, ly + 1, haloColor, tf);
+                    ds.DrawText(pl.Name, x, ly, textColor, tf);
+                }
+            }
+            finally
+            {
+                foreach (var f in fmt) f?.Dispose();
+            }
+        }
+
+        // Highest scalerank (least important place) to show at a given zoom level.
+        // scalerank 0 = megacities, 10 = small towns. Below ~zoom 10 everything is shown.
+        private static int MaxScaleRank(double zoom)
+        {
+            int sr = (int)Math.Round((zoom - 3) * 1.4);
+            if (sr < 0) sr = 0;
+            if (sr > 10) sr = 10;
+            return sr;
+        }
+
+        private static int Bucket(int scaleRank)
+        {
+            if (scaleRank <= 1) return 0;
+            if (scaleRank <= 3) return 1;
+            if (scaleRank <= 6) return 2;
+            return 3;
+        }
+
+        private static float BucketFont(int bucket)
+        {
+            switch (bucket)
+            {
+                case 0: return 15f;
+                case 1: return 13f;
+                case 2: return 12f;
+                default: return 11f;
+            }
         }
 
         private void EnsureGeometry(ICanvasResourceCreator rc, MapViewport vp)
