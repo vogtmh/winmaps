@@ -64,7 +64,8 @@ namespace WinMaps
         private MapViewport _viewport;
         private MapRenderer _renderer;
         private MapDatabase _db;
-        private MapDownloadManager _downloadManager;
+        // World basemap fallback (coarse country outlines) drawn under any downloaded data
+        private readonly WorldBasemapRenderer _worldBasemap = new WorldBasemapRenderer();        private MapDownloadManager _downloadManager;
         private CancellationTokenSource _cts;
 
         // GPS
@@ -2554,6 +2555,20 @@ namespace WinMaps
             _viewport.ScreenWidth = sender.ActualWidth;
             _viewport.ScreenHeight = sender.ActualHeight;
 
+            // World basemap fallback: drawn first, beneath any downloaded data, so areas
+            // without a downloaded map still show coastlines/borders instead of a blank canvas.
+            try
+            {
+                if (!_worldBasemap.IsReady)
+                    EnsureWorldBasemapAsync();
+                _worldBasemap.Draw(args.DrawingSession, sender, _viewport, _currentTheme);
+            }
+            catch (Exception ex)
+            {
+                _lastRenderError = ex.ToString();
+                Log($"Basemap draw error: {ex}");
+            }
+
             if (_renderer != null)
             {
                 // If the cache is empty but we now have valid dimensions, trigger a load.
@@ -2578,6 +2593,41 @@ namespace WinMaps
                     Log($"Draw error: {ex}");
                 }
             }
+            else if (!double.IsNaN(_gpsLat))
+            {
+                // No downloaded map: still draw the GPS dot + compass over the world basemap
+                try
+                {
+                    MapRenderer.DrawGpsPosition(args.DrawingSession, sender, _viewport, _currentTheme,
+                        _gpsLat, _gpsLon, _gpsAccuracy, _headingDisplay);
+                }
+                catch (Exception ex)
+                {
+                    _lastRenderError = ex.ToString();
+                    Log($"GPS draw error: {ex}");
+                }
+            }
+        }
+
+        private bool _worldBasemapLoading;
+
+        /// <summary>
+        /// Lazily loads the world basemap data off the draw path and repaints once it's ready.
+        /// </summary>
+        private async void EnsureWorldBasemapAsync()
+        {
+            if (_worldBasemap.IsReady || _worldBasemapLoading) return;
+            _worldBasemapLoading = true;
+            try
+            {
+                await _worldBasemap.EnsureLoadedAsync();
+                if (_worldBasemap.IsReady)
+                    MapCanvas.Invalidate();
+            }
+            finally
+            {
+                _worldBasemapLoading = false;
+            }
         }
 
         private async void RedrawMap()
@@ -2599,6 +2649,11 @@ namespace WinMaps
                 if (_renderer != null)
                 {
                     await _renderer.EnsureCacheAsync();
+                    MapCanvas.Invalidate();
+                }
+                else
+                {
+                    // No downloaded map: still repaint so the world basemap follows pans/zooms
                     MapCanvas.Invalidate();
                 }
             }

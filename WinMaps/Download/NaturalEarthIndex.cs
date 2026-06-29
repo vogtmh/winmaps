@@ -35,6 +35,21 @@ namespace WinMaps.Download
             IsLoaded = true;
         }
 
+        /// <summary>
+        /// Loads Natural Earth country data at the given resolution ("50m" or "110m").
+        /// The coarse 110m set is much lighter and is used for the world basemap fallback.
+        /// </summary>
+        public async Task LoadAsync(string resolution)
+        {
+            string asset = resolution == "110m"
+                ? "ms-appx:///Assets/NaturalEarth/ne_110m_admin_0_countries.geojson"
+                : "ms-appx:///Assets/NaturalEarth/ne_50m_admin_0_countries.geojson";
+            var file = await StorageFile.GetFileFromApplicationUriAsync(new Uri(asset));
+            string json = await FileIO.ReadTextAsync(file);
+            Parse(json);
+            IsLoaded = true;
+        }
+
         public List<string> GetContinents()
         {
             if (_byContinent == null) return new List<string>();

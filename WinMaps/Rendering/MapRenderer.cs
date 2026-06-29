@@ -529,28 +529,39 @@ namespace WinMaps.Rendering
         public void DrawGpsPosition(CanvasDrawingSession ds, double lat, double lon, double accuracy,
             double headingDegrees = double.NaN)
         {
-            var (x, y) = _viewport.GeoToScreen(lat, lon);
+            DrawGpsPosition(ds, ds, _viewport, _theme, lat, lon, accuracy, headingDegrees);
+        }
+
+        /// <summary>
+        /// Draws the GPS dot (+ accuracy circle and facing cone) using only a viewport and theme,
+        /// so it can be rendered even when no map DB is loaded (world-basemap-only mode).
+        /// </summary>
+        public static void DrawGpsPosition(CanvasDrawingSession ds, ICanvasResourceCreator rc,
+            MapViewport viewport, MapTheme theme, double lat, double lon, double accuracy,
+            double headingDegrees = double.NaN)
+        {
+            var (x, y) = viewport.GeoToScreen(lat, lon);
 
             if (accuracy > 0 && accuracy < 500)
             {
-                double metersPerPixel = _viewport.MetersPerPixel;
+                double metersPerPixel = viewport.MetersPerPixel;
                 float radiusPixels = (float)(accuracy / metersPerPixel);
                 if (radiusPixels > 3 && radiusPixels < 500)
                 {
-                    ds.FillCircle(x, y, radiusPixels, _theme.GpsAccuracyFill);
-                    ds.DrawCircle(x, y, radiusPixels, _theme.GpsAccuracyStroke, 1);
+                    ds.FillCircle(x, y, radiusPixels, theme.GpsAccuracyFill);
+                    ds.DrawCircle(x, y, radiusPixels, theme.GpsAccuracyStroke, 1);
                 }
             }
 
             // Facing-direction cone (drawn under the dot so the dot stays on top)
             if (!double.IsNaN(headingDegrees))
             {
-                DrawHeadingCone(ds, ds, x, y, headingDegrees);
+                DrawHeadingCone(ds, rc, theme, x, y, headingDegrees);
             }
 
             // Halo + dot
-            ds.FillCircle(x, y, 8, _theme.GpsDotHalo);
-            ds.FillCircle(x, y, 6, _theme.GpsDotFill);
+            ds.FillCircle(x, y, 8, theme.GpsDotHalo);
+            ds.FillCircle(x, y, 6, theme.GpsDotFill);
         }
 
         /// <summary>
@@ -558,8 +569,8 @@ namespace WinMaps.Rendering
         /// Heading is in degrees clockwise from north (0 = up); screen Y is downward so
         /// the direction vector is (sin h, -cos h).
         /// </summary>
-        private void DrawHeadingCone(CanvasDrawingSession ds, ICanvasResourceCreator rc,
-            float x, float y, double headingDegrees)
+        private static void DrawHeadingCone(CanvasDrawingSession ds, ICanvasResourceCreator rc,
+            MapTheme theme, float x, float y, double headingDegrees)
         {
             double h = headingDegrees * Math.PI / 180.0;
             const double halfAngle = 28.0 * Math.PI / 180.0;
@@ -583,7 +594,7 @@ namespace WinMaps.Rendering
                 pb.EndFigure(CanvasFigureLoop.Closed);
                 using (var geo = CanvasGeometry.CreatePath(pb))
                 {
-                    var c = _theme.GpsDotFill;
+                    var c = theme.GpsDotFill;
                     ds.FillGeometry(geo, Color.FromArgb(120, c.R, c.G, c.B));
                 }
             }

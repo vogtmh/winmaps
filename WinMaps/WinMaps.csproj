@@ -115,6 +115,7 @@
     <Compile Include="Rendering\MapRenderer.cs" />
     <Compile Include="Rendering\MapTheme.cs" />
     <Compile Include="Rendering\MapViewport.cs" />
+    <Compile Include="Rendering\WorldBasemapRenderer.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Properties\Default.rd.xml" />
