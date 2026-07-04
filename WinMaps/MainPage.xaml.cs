@@ -2644,27 +2644,27 @@ namespace WinMaps
                 // Only works when zoom hasn't changed — Mercator coords are zoom-dependent,
                 // so stale data at a different zoom renders at the wrong scale.
                 bool zoomSame = _renderer != null && Math.Abs(_renderer.CacheZoom - _viewport.Zoom) < 0.01;
-                if (zoomSame)
+                if (zoomSame && !IsFullscreenMenuOpen)
                     MapCanvas.Invalidate();
                 TxtZoom.Text = $"Z{_viewport.Zoom:F0}";
                 TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
                 SaveViewport();
                 ScheduleDownloadHereCheck();
 
-                // Don't reload map data while a fullscreen menu is covering the canvas —
-                // the heavy DB query would cause graphical glitches visible through the panel.
-                if (IsFullscreenMenuOpen) return;
-
-                // Then reload data in the background and repaint when ready
+                // Then reload data in the background and repaint when ready.
+                // While a fullscreen menu covers the canvas we still warm up the cache
+                // (so it's ready when the panel closes) but skip Invalidate to avoid
+                // graphical glitches from repainting underneath the panel.
+                bool menuOpen = IsFullscreenMenuOpen;
                 if (_renderer != null)
                 {
                     await _renderer.EnsureCacheAsync();
-                    MapCanvas.Invalidate();
+                    if (!menuOpen) MapCanvas.Invalidate();
                 }
                 else
                 {
                     // No downloaded map: still repaint so the world basemap follows pans/zooms
-                    MapCanvas.Invalidate();
+                    if (!menuOpen) MapCanvas.Invalidate();
                 }
             }
             catch (Exception ex)
@@ -3301,11 +3301,10 @@ namespace WinMaps
         private async void EnsureGpsCache()
         {
             if (_renderer == null) return;
-            if (IsFullscreenMenuOpen) return;
             try
             {
                 await _renderer.EnsureCacheAsync();
-                MapCanvas.Invalidate();
+                if (!IsFullscreenMenuOpen) MapCanvas.Invalidate();
             }
             catch (Exception ex)
             {
