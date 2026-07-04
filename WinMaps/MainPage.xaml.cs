@@ -2556,12 +2556,6 @@ namespace WinMaps
             _viewport.ScreenWidth = sender.ActualWidth;
             _viewport.ScreenHeight = sender.ActualHeight;
 
-            // While a fullscreen panel covers the canvas (map manager, import overlay), skip
-            // rendering entirely so expensive repaints don't cause graphical glitches through
-            // the panel. The canvas holds its last rendered frame; Invalidate() calls from
-            // background cache loads are still allowed so the cache stays warm.
-            if (IsFullscreenMenuOpen) return;
-
             // World basemap fallback: drawn first, beneath any downloaded data, so areas
             // without a downloaded map still show coastlines/borders instead of a blank canvas.
             try
@@ -2650,23 +2644,27 @@ namespace WinMaps
                 // Only works when zoom hasn't changed — Mercator coords are zoom-dependent,
                 // so stale data at a different zoom renders at the wrong scale.
                 bool zoomSame = _renderer != null && Math.Abs(_renderer.CacheZoom - _viewport.Zoom) < 0.01;
-                if (zoomSame)
+                if (zoomSame && !IsFullscreenMenuOpen)
                     MapCanvas.Invalidate();
                 TxtZoom.Text = $"Z{_viewport.Zoom:F0}";
                 TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
                 SaveViewport();
                 ScheduleDownloadHereCheck();
 
-                // Then reload data in the background and repaint when ready
+                // Then reload data in the background and repaint when ready.
+                // While a fullscreen menu covers the canvas we still warm up the cache
+                // (so it's ready when the panel closes) but skip Invalidate to avoid
+                // graphical glitches from repainting underneath the panel.
+                bool menuOpen = IsFullscreenMenuOpen;
                 if (_renderer != null)
                 {
                     await _renderer.EnsureCacheAsync();
-                    MapCanvas.Invalidate();
+                    if (!menuOpen) MapCanvas.Invalidate();
                 }
                 else
                 {
                     // No downloaded map: still repaint so the world basemap follows pans/zooms
-                    MapCanvas.Invalidate();
+                    if (!menuOpen) MapCanvas.Invalidate();
                 }
             }
             catch (Exception ex)
@@ -3306,7 +3304,7 @@ namespace WinMaps
             try
             {
                 await _renderer.EnsureCacheAsync();
-                MapCanvas.Invalidate();
+                if (!IsFullscreenMenuOpen) MapCanvas.Invalidate();
             }
             catch (Exception ex)
             {
