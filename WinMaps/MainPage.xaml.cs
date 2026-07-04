@@ -717,6 +717,7 @@ namespace WinMaps
         private void BtnCloseManager_Click(object sender, RoutedEventArgs e)
         {
             MapManagerPanel.Visibility = Visibility.Collapsed;
+            RedrawMap(); // Refresh map data that was suppressed while the panel was open
         }
 
         // ---- My Maps ----
@@ -2630,6 +2631,11 @@ namespace WinMaps
             }
         }
 
+        /// <summary>Returns true when a fullscreen overlay (map manager, import/download dialog) is covering the map canvas.</summary>
+        private bool IsFullscreenMenuOpen =>
+            MapManagerPanel.Visibility == Visibility.Visible ||
+            OverlayPanel.Visibility == Visibility.Visible;
+
         private async void RedrawMap()
         {
             try
@@ -2644,6 +2650,10 @@ namespace WinMaps
                 TxtStatus.Text = $"{_viewport.CenterLat:F4}° N, {_viewport.CenterLon:F4}° E";
                 SaveViewport();
                 ScheduleDownloadHereCheck();
+
+                // Don't reload map data while a fullscreen menu is covering the canvas —
+                // the heavy DB query would cause graphical glitches visible through the panel.
+                if (IsFullscreenMenuOpen) return;
 
                 // Then reload data in the background and repaint when ready
                 if (_renderer != null)
@@ -3291,6 +3301,7 @@ namespace WinMaps
         private async void EnsureGpsCache()
         {
             if (_renderer == null) return;
+            if (IsFullscreenMenuOpen) return;
             try
             {
                 await _renderer.EnsureCacheAsync();
