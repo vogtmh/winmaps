@@ -203,11 +203,13 @@ namespace WinMaps
                     else
                     {
                         MapManagerPanel.Visibility = Visibility.Collapsed;
+                        RedrawMap();
                     }
                 }
                 else
                 {
                     MapManagerPanel.Visibility = Visibility.Collapsed;
+                    RedrawMap();
                 }
                 e.Handled = true;
             }
@@ -717,6 +719,7 @@ namespace WinMaps
         private void BtnCloseManager_Click(object sender, RoutedEventArgs e)
         {
             MapManagerPanel.Visibility = Visibility.Collapsed;
+            RedrawMap(); // Repaint the map that was suppressed while the panel was open
         }
 
         // ---- My Maps ----
@@ -2011,6 +2014,7 @@ namespace WinMaps
                 else
                 {
                     OverlayPanel.Visibility = Visibility.Collapsed;
+                    RedrawMap();
                 }
             }
             catch (Download.DownloadStalledException)
@@ -2086,7 +2090,10 @@ namespace WinMaps
                     if (lastCountryKey != null && done > 0)
                         FinalizeMapAfterImport(lastCountryKey);
                     else
+                    {
                         OverlayPanel.Visibility = Visibility.Collapsed;
+                        RedrawMap();
+                    }
                 }
             }
             catch (Download.DownloadStalledException)
@@ -2555,6 +2562,12 @@ namespace WinMaps
             _viewport.ScreenWidth = sender.ActualWidth;
             _viewport.ScreenHeight = sender.ActualHeight;
 
+            // While a fullscreen panel covers the canvas (map manager, import overlay), skip
+            // rendering entirely so expensive repaints don't cause graphical glitches through
+            // the panel. The canvas holds its last rendered frame; background cache loads
+            // still run so the map is up to date when the panel closes.
+            if (IsFullscreenMenuOpen) return;
+
             // World basemap fallback: drawn first, beneath any downloaded data, so areas
             // without a downloaded map still show coastlines/borders instead of a blank canvas.
             try
@@ -2629,6 +2642,11 @@ namespace WinMaps
                 _worldBasemapLoading = false;
             }
         }
+
+        /// <summary>Returns true when a fullscreen overlay (map manager, import/download dialog) is covering the map canvas.</summary>
+        private bool IsFullscreenMenuOpen =>
+            MapManagerPanel.Visibility == Visibility.Visible ||
+            OverlayPanel.Visibility == Visibility.Visible;
 
         private async void RedrawMap()
         {
